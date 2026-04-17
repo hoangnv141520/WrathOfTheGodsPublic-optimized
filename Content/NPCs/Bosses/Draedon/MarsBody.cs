@@ -68,6 +68,8 @@ public partial class MarsBody : ModNPC, IBossDowned
 
     private static NPC? myself;
 
+    private int cachedForcefieldIndex = -1;
+
     public bool AutomaticallyRegisterDeathGlobally => false;
 
     /// <summary>

@@ -113,6 +113,11 @@ public partial class MarsBody
     /// </summary>
     public void DoBehavior_ElectricCageBlasts_Solyn(BattleSolyn solyn)
     {
+        if (AITimer == 0)
+        {
+            cachedForcefieldIndex = -1;
+        }
+
         if (solyn.IsMultiplayerClone)
         {
             solyn.Invisible = true;
@@ -120,54 +125,74 @@ public partial class MarsBody
         }
 
         NPC solynNPC = solyn.NPC;
-        int forcefieldIndex = NPC.FindFirstNPC(ModContent.NPCType<TrappingHolographicForcefield>());
-        NPC? forcefield = forcefieldIndex >= 0 ? Main.npc[forcefieldIndex] : null;
+        NPC? forcefield = null;
 
-        // Slow down in place so that Mars can trap Solyn.
-        if (AITimer <= ElectricCageBlasts_TrapDelay + ElectricCageBlasts_TrapSolynTime)
+        bool isValidCache = cachedForcefieldIndex >= 0 && 
+                            cachedForcefieldIndex < Main.maxNPCs && 
+                            Main.npc[cachedForcefieldIndex].active && 
+                            Main.npc[cachedForcefieldIndex].type == ModContent.NPCType<TrappingHolographicForcefield>();
+
+        if (isValidCache)
         {
-            // Create the forcefield.
+            forcefield = Main.npc[cachedForcefieldIndex];
+        }
+        else
+        {
+            cachedForcefieldIndex = NPC.FindFirstNPC(ModContent.NPCType<TrappingHolographicForcefield>());
+            
+            if (cachedForcefieldIndex >= 0 && cachedForcefieldIndex < Main.maxNPCs)
+            {
+                forcefield = Main.npc[cachedForcefieldIndex];
+            }
+        }
+
+        bool isTrappingPhase = AITimer <= ElectricCageBlasts_TrapDelay + ElectricCageBlasts_TrapSolynTime;
+
+        if (isTrappingPhase)
+        {
             if (Main.netMode != NetmodeID.MultiplayerClient && AITimer == ElectricCageBlasts_TrapDelay + 1)
+            {
                 NPC.NewNPC(NPC.GetSource_FromAI(), (int)solynNPC.Center.X, (int)solynNPC.Center.Y - 10, ModContent.NPCType<TrappingHolographicForcefield>(), NPC.whoAmI);
+            }
 
             solynNPC.velocity *= 0.84f;
             solynNPC.rotation = solynNPC.velocity.X * 0.012f;
         }
 
-        // Stay within the entrapping forcefield.
-        else if (forcefield is not null)
-        {
-            solynNPC.velocity *= 0.95f;
-            solynNPC.rotation = solynNPC.rotation.AngleLerp(solynNPC.velocity.X * 0.2f, 0.1f);
-            if (Abs(solynNPC.velocity.X) >= 0.4f)
-                solynNPC.spriteDirection = solynNPC.velocity.X.NonZeroSign();
-
-            float maxRadius = ElectricCageBlasts_ForcefieldSize * 0.45f - MathF.Max(solynNPC.Hitbox.Width, solynNPC.Hitbox.Height);
-            Vector2 forcefieldPosition = forcefield.Center + NPC.velocity;
-            while (solynNPC.Hitbox.Distance(forcefieldPosition) > maxRadius)
-            {
-                solynNPC.Center += solynNPC.SafeDirectionTo(forcefieldPosition);
-
-                if (solynNPC.velocity.Length() <= 5f)
-                {
-                    solynNPC.velocity += solynNPC.SafeDirectionTo(forcefieldPosition).RotatedByRandom(0.2f) * Main.rand.NextFloat(2f, 3f);
-                    solynNPC.netUpdate = true;
-                }
-            }
-        }
-
-        // Draw the front and back half of the forcefield relative to Solyn's layering.
         if (forcefield is not null)
         {
+            if (!isTrappingPhase)
+            {
+                solynNPC.velocity *= 0.95f;
+                solynNPC.rotation = solynNPC.rotation.AngleLerp(solynNPC.velocity.X * 0.2f, 0.1f);
+                
+                if (Abs(solynNPC.velocity.X) >= 0.4f)
+                    solynNPC.spriteDirection = solynNPC.velocity.X.NonZeroSign();
+
+                float maxRadius = ElectricCageBlasts_ForcefieldSize * 0.45f - MathF.Max(solynNPC.Hitbox.Width, solynNPC.Hitbox.Height);
+                Vector2 forcefieldPosition = forcefield.Center + NPC.velocity;
+                
+                float currentDistance = solynNPC.Hitbox.Distance(forcefieldPosition);
+
+                if (currentDistance > maxRadius)
+                {
+                    Vector2 directionToCenter = solynNPC.SafeDirectionTo(forcefieldPosition);
+                    
+                    float correction = currentDistance - maxRadius;
+                    float maxStep = 20f;
+                    solynNPC.Center += directionToCenter * MathF.Min(correction, maxStep);
+
+                    if (solynNPC.velocity.Length() <= 5f)
+                    {
+                        solynNPC.velocity += directionToCenter.RotatedByRandom(0.2f) * Main.rand.NextFloat(2f, 3f);
+                        solynNPC.netUpdate = true;
+                    }
+                }
+            }
+
             TrappingHolographicForcefield forcefieldModProjectile = forcefield.As<TrappingHolographicForcefield>();
-            solyn.OptionalPreDrawRenderAction = _ =>
-            {
-                forcefieldModProjectile.DrawBack();
-            };
-            solyn.OptionalPostDrawRenderAction = _ =>
-            {
-                forcefieldModProjectile.DrawFront();
-            };
+            solyn.OptionalPreDrawRenderAction = _ => forcefieldModProjectile.DrawBack();
+            solyn.OptionalPostDrawRenderAction = _ => forcefieldModProjectile.DrawFront();
         }
 
         solyn.UseStarFlyEffects();

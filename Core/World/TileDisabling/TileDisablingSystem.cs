@@ -1,4 +1,4 @@
-﻿using System.Reflection;
+using System.Reflection;
 using CalamityMod;
 using CalamityMod.CalPlayer;
 using CalamityMod.Physics;
@@ -64,7 +64,7 @@ public class TileDisablingSystem : ModSystem
         On_Collision.WaterCollision += DisableLiquidCollision2;
         On_Collision.DrownCollision += DisableLiquidCollision3;
         On_Collision.LavaCollision += DisableLavaCollision;
-        On_Collision.SwitchTiles += DisableSwitchChecks;
+        // SwitchTiles (static) is obsolete in tML; SwitchTilesNew on Collision is the supported path.
         On_Collision.SwitchTilesNew += DisableSwitchChecks2;
         On_Collision.SolidCollision_Vector2_int_int += ImLosingIt1;
         On_Collision.SolidCollision_Vector2_int_int_bool += ImLosingIt2;
@@ -153,14 +153,6 @@ public class TileDisablingSystem : ModSystem
             return false;
 
         return orig(self, Position, Width, Height, oldPosition, objType);
-    }
-
-    private bool DisableSwitchChecks(On_Collision.orig_SwitchTiles orig, Vector2 Position, int Width, int Height, Vector2 oldPosition, int objType)
-    {
-        if (TilesAreUninteractable)
-            return false;
-
-        return orig(Position, Width, Height, oldPosition, objType);
     }
 
     private bool ImLosingIt1(On_Collision.orig_SolidCollision_Vector2_int_int orig, Vector2 Position, int Width, int Height)
