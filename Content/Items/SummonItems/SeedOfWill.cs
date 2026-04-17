@@ -1,6 +1,7 @@
-﻿using NoxusBoss.Content.NPCs.Bosses.NamelessDeity;
+using NoxusBoss.Content.NPCs.Bosses.NamelessDeity;
 using NoxusBoss.Content.NPCs.Bosses.NamelessDeity.SpecificEffectManagers;
 using NoxusBoss.Content.Rarities;
+using NoxusBoss.Core.Configuration;
 using NoxusBoss.Core.Netcode;
 using NoxusBoss.Core.Netcode.Packets;
 using NoxusBoss.Core.World.Subworlds;
@@ -31,8 +32,16 @@ public class SeedOfWill : ModItem
         Item.rare = ModContent.RarityType<NamelessDeityRarity>();
     }
 
-    public override bool CanUseItem(Player player) =>
-        !NPC.AnyNPCs(ModContent.NPCType<NamelessDeityBoss>()) && EternalGardenUpdateSystem.WasInSubworldLastUpdateFrame;
+    public override bool CanUseItem(Player player)
+    {
+        if (NPC.AnyNPCs(ModContent.NPCType<NamelessDeityBoss>()))
+            return false;
+
+        if (GameplayConfig.Instance.AllowSeedOfWillAnywhere)
+            return true;
+
+        return EternalGardenUpdateSystem.WasInSubworldLastUpdateFrame;
+    }
 
     public override bool? UseItem(Player player)
     {

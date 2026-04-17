@@ -1,0 +1,10 @@
+DisplayName: Gameplay
+
+AllowSeedOfWillAnywhere: {
+	Label: Allow Seed of Will Outside Eternal Garden
+	Tooltip:
+		'''
+		If enabled, the Seed of Will can summon the Nameless Deity from anywhere (overworld, other subworlds, etc.), as long as he is not already alive.
+		By default the item only works inside the Eternal Garden subworld (Genesis), which is why it appears "locked" elsewhere.
+		'''
+}

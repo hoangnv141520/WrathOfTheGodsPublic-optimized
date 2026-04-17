@@ -1,12 +1,10 @@
-﻿using System.Reflection;
+using System.Reflection;
 using NoxusBoss.Core.CrossCompatibility.Inbound;
 
 namespace NoxusBoss.Core.Utilities;
 
 public static partial class Utilities
 {
-    private static FieldInfo? calConfigInstanceField;
-
     /// <summary>
     /// Useful way of acquiring information from Calamity's config without a strong reference.
     /// </summary>
@@ -19,18 +17,43 @@ public static partial class Utilities
         if (ModReferences.Calamity is null)
             return defaultValue;
 
-        // Immediately return the default value if Calamity's config doesn't exist for some reason.
-        Type? calConfigType = ModReferences.Calamity.Code.GetType("CalamityMod.CalamityConfig") ?? ModReferences.Calamity.Code.GetType("CalamityMod.CalamityClientConfig");
-        if (calConfigType is null)
-            return defaultValue;
+        // Calamity 2.x split config into client vs server; legacy CalamityConfig may still exist on older builds.
+        ReadOnlySpan<string> typeNames =
+        [
+            "CalamityMod.CalamityConfig",
+            "CalamityMod.CalamityClientConfig",
+            "CalamityMod.CalamityServerConfig",
+        ];
 
-        // Use reflection to access the property's data. If this fails, return the default value.
-        calConfigInstanceField ??= calConfigType.GetField("Instance");
-        object? calConfig = calConfigInstanceField?.GetValue(null) ?? null;
-        if (calConfig is null)
-            return defaultValue;
+        foreach (string fullName in typeNames)
+        {
+            Type? calConfigType = ModReferences.Calamity.Code.GetType(fullName);
+            if (calConfigType is null)
+                continue;
 
-        PropertyInfo? property = calConfig?.GetType()?.GetProperty(propertyName, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-        return (T)(property?.GetValue(calConfig) ?? defaultValue!);
+            FieldInfo? instanceField = calConfigType.GetField("Instance");
+            object? calConfig = instanceField?.GetValue(null);
+            if (calConfig is null)
+                continue;
+
+            PropertyInfo? property = calConfig.GetType().GetProperty(propertyName, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+            object? raw = property?.GetValue(calConfig);
+            if (raw is null)
+                continue;
+
+            if (raw is T typed)
+                return typed;
+
+            try
+            {
+                return (T)Convert.ChangeType(raw, typeof(T));
+            }
+            catch
+            {
+                // Property exists but is not convertible to T; try next config type.
+            }
+        }
+
+        return defaultValue;
     }
 }

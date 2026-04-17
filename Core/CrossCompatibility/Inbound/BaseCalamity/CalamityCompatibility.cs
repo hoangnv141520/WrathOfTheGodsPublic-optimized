@@ -1,5 +1,6 @@
-﻿using CalamityMod;
+using CalamityMod;
 using CalamityMod.CalPlayer;
+using static NoxusBoss.Core.Utilities.Utilities;
 using Terraria;
 using Terraria.ID;
 using Terraria.ModLoader;
@@ -70,7 +71,8 @@ public class CalamityCompatibility : ModSystem
     [JITWhenModsEnabled(ModName)]
     public static void SetLifeMaxByMode_ApplyCalBossHPBoost(NPC npc)
     {
-        long effectiveNewHP = npc.lifeMax + (long)Math.Round(npc.lifeMax * (double)(CalamityConfig.Instance.BossHealthBoost * 0.01));
+        float bossHpBoost = GetFromCalamityConfig<float>("BossHealthBoost", 0f);
+        long effectiveNewHP = npc.lifeMax + (long)Math.Round(npc.lifeMax * (double)(bossHpBoost * 0.01));
         effectiveNewHP = Utils.Clamp(effectiveNewHP, 1, int.MaxValue);
         npc.lifeMax = (int)effectiveNewHP;
     }
@@ -134,5 +136,32 @@ public class CalamityCompatibility : ModSystem
     {
         CalamityPlayer calPlayer = p.Calamity();
         calPlayer.stealthUIAlpha = -0.25f;
+    }
+
+    private static int? permafrostTownNpcType;
+
+    /// <summary>
+    /// Calamity's Permafrost town NPC <see cref="NPC.type"/>. Some Calamity versions register it as <c>Archmage</c>, others as <c>DILF</c>.
+    /// </summary>
+    /// <returns><see cref="NPCID.None"/> if Calamity is disabled or the NPC could not be resolved.</returns>
+    public static int GetPermafrostTownNpcType()
+    {
+        if (permafrostTownNpcType.HasValue)
+            return permafrostTownNpcType.Value;
+
+        if (!ModLoader.TryGetMod(ModName, out Mod cal))
+        {
+            permafrostTownNpcType = NPCID.None;
+            return permafrostTownNpcType.Value;
+        }
+
+        if (cal.TryFind<ModNPC>("Archmage", out ModNPC archmage))
+            permafrostTownNpcType = archmage.Type;
+        else if (cal.TryFind<ModNPC>("DILF", out ModNPC dilf))
+            permafrostTownNpcType = dilf.Type;
+        else
+            permafrostTownNpcType = NPCID.None;
+
+        return permafrostTownNpcType.Value;
     }
 }

@@ -1170,8 +1170,29 @@ SeedOfWill: {
 	Tooltip:
 		'''
 		Engages the Nameless Deity in an unending test of resolve
-		May only be used in the garden
+		By default, may only be used while you are in the Eternal Garden (Genesis subworld)
+		The host can enable "Allow Seed of Will Outside Eternal Garden" under Settings → Mod Configuration → Calamity: Wrath of the Gods → Gameplay
 		You may be rewarded if you last long enough
+		'''
+}
+
+SummonMarsDebug: {
+	DisplayName: Mars Summon (DEBUG)
+	Tooltip:
+		'''
+		Instantly spawns Mars near you for combat testing
+		Only works if Mars is not already alive
+		[c/FF2219:Debug only — not balanced for normal play]
+		'''
+}
+
+SummonAvatarRiftDebug: {
+	DisplayName: Avatar Rift Summon (DEBUG)
+	Tooltip:
+		'''
+		Instantly spawns the Avatar rift (phase 1) for testing
+		Only works if the Avatar rift or Avatar of Emptiness is not already alive
+		[c/FF2219:Debug only — may break scenes or progression if misused]
 		'''
 }
 

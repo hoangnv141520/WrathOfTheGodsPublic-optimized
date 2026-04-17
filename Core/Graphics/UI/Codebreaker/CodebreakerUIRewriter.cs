@@ -1,4 +1,5 @@
-﻿using System.Reflection;
+using System;
+using System.Reflection;
 using CalamityMod;
 using CalamityMod.TileEntities;
 using CalamityMod.UI.DraedonSummoning;
@@ -86,7 +87,95 @@ public class CodebreakerUIRewriter : ModSystem
         DraedonSummonUIHook.Apply();
     }
 
-    public override void Unload() => DraedonSummonUIHook?.Undo();
+    public override void Unload()
+    {
+        DraedonSummonUIHook?.Undo();
+        getCodebreakerHasBloodSample = null;
+        sendCodebreakerSummonCalamity = null;
+    }
+
+    /// <summary>
+    /// Calamity replaced legacy <c>CalamityModMessageType</c>-prefixed <see cref="ModPacket"/> writes with <c>CodebreakerSummonStuffPacket.Send()</c>.
+    /// </summary>
+    private static Action? sendCodebreakerSummonCalamity;
+
+    private static void SendCodebreakerSummonToMultiplayer()
+    {
+        if (Main.netMode == NetmodeID.SinglePlayer)
+            return;
+
+        sendCodebreakerSummonCalamity ??= CreateCodebreakerSummonCalamitySender();
+        sendCodebreakerSummonCalamity?.Invoke();
+    }
+
+    private static Action? CreateCodebreakerSummonCalamitySender()
+    {
+        Mod? cal = CalamityCompatibility.Calamity;
+        if (cal is null)
+            return null;
+
+        Type? packetClass = cal.Code.GetType("CalamityMod.Packets.CodebreakerSummonStuffPacket");
+        MethodInfo? newSend = packetClass?.GetMethod("Send", BindingFlags.Public | BindingFlags.Static, binder: null, types: Type.EmptyTypes, modifiers: null);
+        if (newSend is not null)
+            return () => newSend.Invoke(null, null);
+
+        Type? legacyEnum = cal.Code.GetType("CalamityMod.CalamityModMessageType");
+        object? packetId = null;
+        if (legacyEnum is not null && Enum.IsDefined(legacyEnum, "CodebreakerSummonStuff"))
+            packetId = Enum.Parse(legacyEnum, "CodebreakerSummonStuff");
+
+        if (legacyEnum is not null && packetId is not null)
+        {
+            return () =>
+            {
+                ModPacket netMessage = cal.GetPacket();
+                netMessage.Write(Convert.ToByte(packetId));
+                netMessage.Write(CalamityWorld.DraedonSummonCountdown);
+                netMessage.WriteVector2(CalamityWorld.DraedonSummonPosition);
+                netMessage.Write(CalamityWorld.DraedonMechdusa);
+                netMessage.Send();
+            };
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Calamity renamed this flag (<c>ContainsBloodSample</c> → <c>ContainsBloodyVein</c>) and it may be a field; resolve without hard-coding one assembly shape.
+    /// </summary>
+    private static Func<TECodebreaker, bool>? getCodebreakerHasBloodSample;
+
+    private static bool CodebreakerHasBloodSample(TECodebreaker te)
+    {
+        if (te is null)
+            return false;
+
+        if (getCodebreakerHasBloodSample is not null)
+            return getCodebreakerHasBloodSample(te);
+
+        Type type = typeof(TECodebreaker);
+        const BindingFlags flags = BindingFlags.Public | BindingFlags.Instance;
+
+        foreach (string name in new[] { "ContainsBloodyVein", "ContainsBloodSample" })
+        {
+            FieldInfo? field = type.GetField(name, flags);
+            if (field?.FieldType == typeof(bool))
+            {
+                getCodebreakerHasBloodSample = t => (bool)field.GetValue(t)!;
+                return getCodebreakerHasBloodSample(te);
+            }
+
+            PropertyInfo? prop = type.GetProperty(name, flags);
+            if (prop?.PropertyType == typeof(bool) && prop.GetMethod is not null)
+            {
+                getCodebreakerHasBloodSample = t => (bool)prop.GetValue(t)!;
+                return getCodebreakerHasBloodSample(te);
+            }
+        }
+
+        getCodebreakerHasBloodSample = _ => false;
+        return false;
+    }
 
     private static void UpdateCodebreakerSummonRequirements(ILContext context, ManagedILEdit edit)
     {
@@ -122,7 +211,7 @@ public class CodebreakerUIRewriter : ModSystem
         Rectangle clickArea = Utils.CenteredRectangle(drawPosition, contactButton.Size() * VerificationButtonScale);
 
         // Make the icon spin if the codebreaker contains a blood sample.
-        float iconRotation = codebreakerTileEntity.ContainsBloodSample ? Main.GlobalTimeWrappedHourly * 20f : 0f;
+        float iconRotation = CodebreakerHasBloodSample(codebreakerTileEntity) ? Main.GlobalTimeWrappedHourly * 20f : 0f;
 
         // Check if the mouse is hovering over the contact button area.
         if (MouseScreenArea.Intersects(clickArea))
@@ -137,20 +226,12 @@ public class CodebreakerUIRewriter : ModSystem
             {
                 CalamityWorld.DraedonSummonCountdown = CalamityWorld.DraedonSummonCountdownMax;
                 CalamityWorld.DraedonSummonPosition = codebreakerTileEntity.Center + new Vector2(-8f, -100f);
-                if (Main.zenithWorld && codebreakerTileEntity.ContainsBloodSample)
+                if (Main.zenithWorld && CodebreakerHasBloodSample(codebreakerTileEntity))
                     CalamityWorld.DraedonMechdusa = true;
 
                 SoundEngine.PlaySound(SummonSound, CalamityWorld.DraedonSummonPosition);
 
-                if (Main.netMode != NetmodeID.SinglePlayer)
-                {
-                    ModPacket netMessage = CalamityCompatibility.Calamity.GetPacket();
-                    netMessage.Write((byte)CalamityModMessageType.CodebreakerSummonStuff);
-                    netMessage.Write(CalamityWorld.DraedonSummonCountdown);
-                    netMessage.WriteVector2(CalamityWorld.DraedonSummonPosition);
-                    netMessage.Write(CalamityWorld.DraedonMechdusa);
-                    netMessage.Send();
-                }
+                SendCodebreakerSummonToMultiplayer();
             }
         }
 
@@ -166,7 +247,7 @@ public class CodebreakerUIRewriter : ModSystem
         string contactTextKey = "Contact";
         if (CommonCalamityVariables.DraedonDefeated)
             contactTextKey = "Summon";
-        if (codebreakerTileEntity.ContainsBloodSample)
+        if (CodebreakerHasBloodSample(codebreakerTileEntity))
             contactTextKey = "Evoke";
         string contactText = CalamityUtils.GetTextValue("UI." + contactTextKey);
 
@@ -200,17 +281,10 @@ public class CodebreakerUIRewriter : ModSystem
 
                 MarsCombatEvent.MarsBeingSummoned = true;
 
-                if (Main.netMode != NetmodeID.SinglePlayer)
-                {
-                    ModPacket netMessage = CalamityCompatibility.Calamity.GetPacket();
-                    netMessage.Write((byte)CalamityModMessageType.CodebreakerSummonStuff);
-                    netMessage.Write(CalamityWorld.DraedonSummonCountdown);
-                    netMessage.WriteVector2(CalamityWorld.DraedonSummonPosition);
-                    netMessage.Write(CalamityWorld.DraedonMechdusa);
-                    netMessage.Send();
+                SendCodebreakerSummonToMultiplayer();
 
+                if (Main.netMode != NetmodeID.SinglePlayer)
                     PacketManager.SendPacket<MarsSummonStatusPacket>();
-                }
             }
         }
 

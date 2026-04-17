@@ -1,4 +1,4 @@
-﻿using System.CodeDom.Compiler;
+using System.CodeDom.Compiler;
 using System.Reflection;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -37,20 +37,19 @@ internal partial class Program
 
         List<string> pngPaths = Directory.GetFiles(assetContentsDirectory, "*.png", SearchOption.AllDirectories).ToList();
         List<string> oggPaths = Directory.GetFiles(assetContentsDirectory, "*.ogg", SearchOption.AllDirectories).ToList();
-        File.WriteAllText(outputFileName, ProcessAssetContents(pngPaths, oggPaths, Path.GetFileNameWithoutExtension(outputFileName), relativePath));
+        string assetRoot = Path.GetFullPath(assetContentsDirectory);
+        File.WriteAllText(outputFileName, ProcessAssetContents(pngPaths, oggPaths, Path.GetFileNameWithoutExtension(outputFileName), relativePath, assetRoot));
 
         Console.WriteLine("Asset file generated successfully.");
     }
 
     /// <summary>
-    /// Determines the substring of a path relative to a given target directory, clearing away the first half of the directory.
+    /// Builds the tModLoader content path: {modInternalName}/Assets/{path relative to the Assets folder on disk}.
     /// </summary>
-    /// <param name="fullPath">The full path to prune.</param>
-    /// <param name="targetDirectory">The target directory to prune relative to.</param>
-    private static string GetRelativePath(string fullPath, string targetDirectory)
+    private static string GetModContentPath(string fullPath, string assetsDirectoryFullPath, string modInternalName)
     {
-        int index = fullPath.IndexOf(targetDirectory, StringComparison.OrdinalIgnoreCase);
-        return fullPath[index..];
+        string relative = Path.GetRelativePath(assetsDirectoryFullPath, Path.GetFullPath(fullPath));
+        return $"{modInternalName}/Assets/{relative}".Replace('\\', '/');
     }
 
     /// <summary>
@@ -66,7 +65,7 @@ internal partial class Program
     /// <param name="oggPaths">The set of all found .OGG files to convert to sound asset references.</param>
     /// <param name="className">The name of the class that should be generated.</param>
     /// <param name="relativePath">The relative path for the mod.</param>
-    private static string ProcessAssetContents(List<string> pngPaths, List<string> oggPaths, string className, string relativePath)
+    private static string ProcessAssetContents(List<string> pngPaths, List<string> oggPaths, string className, string modInternalName, string assetsDirectoryFullPath)
     {
         StringBuilder sb = new StringBuilder();
 
@@ -85,8 +84,8 @@ internal partial class Program
         sb.AppendLine($"public class {className}");
         sb.AppendLine("{");
 
-        ProcessTextureContents(sb, pngPaths, relativePath);
-        ProcessSoundContents(sb, oggPaths, relativePath);
+        ProcessTextureContents(sb, pngPaths, modInternalName, assetsDirectoryFullPath);
+        ProcessSoundContents(sb, oggPaths, modInternalName, assetsDirectoryFullPath);
 
         sb.AppendLine("}");
 
@@ -94,7 +93,7 @@ internal partial class Program
     }
 
     [GeneratedCode("WoTGAssetBuilder", "a")]
-    private static void ProcessTextureContents(StringBuilder sb, List<string> pngPaths, string relativePath)
+    private static void ProcessTextureContents(StringBuilder sb, List<string> pngPaths, string modInternalName, string assetsDirectoryFullPath)
     {
         sb.AppendLine($"{Indent}public class Textures");
         sb.AppendLine($"{Indent}{{");
@@ -108,7 +107,7 @@ internal partial class Program
             foreach (string path in group.OrderBy(p => p))
             {
                 string assetName = Path.GetFileNameWithoutExtension(path);
-                string pathRelativeToSource = GetRelativePath(path, relativePath).Replace('\\', '/').Replace(".png", string.Empty);
+                string pathRelativeToSource = GetModContentPath(path, assetsDirectoryFullPath, modInternalName).Replace(".png", string.Empty);
 
                 bool immediateLoad = path.Contains("_ImmediateLoad");
                 string loadContext = immediateLoad ? ", AssetRequestMode.ImmediateLoad" : string.Empty;
@@ -122,7 +121,7 @@ internal partial class Program
         sb.AppendLine($"{Indent}}}");
     }
 
-    private static void ProcessSoundContents(StringBuilder sb, List<string> oggPaths, string relativePath)
+    private static void ProcessSoundContents(StringBuilder sb, List<string> oggPaths, string modInternalName, string assetsDirectoryFullPath)
     {
         sb.AppendLine($"{Indent}public class Sounds");
         sb.AppendLine($"{Indent}{{");
@@ -142,7 +141,7 @@ internal partial class Program
             foreach (string path in group.OrderBy(p => p))
             {
                 string assetName = Path.GetFileNameWithoutExtension(path);
-                string pathRelativeToSource = GetRelativePath(path, relativePath).Replace('\\', '/').Replace(".ogg", string.Empty);
+                string pathRelativeToSource = GetModContentPath(path, assetsDirectoryFullPath, modInternalName).Replace(".ogg", string.Empty);
 
                 // If the name contains a number suffix, use syntax to indicate that multiple choosable sounds can play.
                 string variantSyntax = string.Empty;

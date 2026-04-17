@@ -396,3 +396,8 @@ FodyWeavers.xsd
 
 # JetBrains Rider
 *.sln.iml
+
+# Local tModLoader install path (copy from Directory.Build.props.example)
+Directory.Build.props
+tMLMod.targets
+ANALYST.md

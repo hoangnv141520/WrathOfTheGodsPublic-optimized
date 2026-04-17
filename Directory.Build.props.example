@@ -1,0 +1,8 @@
+<Project>
+  <!-- Copy this file to Directory.Build.props and set the path to YOUR tModLoader install.
+       That folder must contain tModLoader.dll, tMLMod.targets, and the Libraries folder
+       (typical Steam path below; use yours if Steam library is on another drive). -->
+  <PropertyGroup>
+    <TMLSteamPath>C:\Program Files (x86)\Steam\steamapps\common\tModLoader\</TMLSteamPath>
+  </PropertyGroup>
+</Project>

@@ -1,0 +1,1156 @@
+diff --git a/.gitignore b/.gitignore
+index 426d76d..3feebb9 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -396,3 +396,6 @@ FodyWeavers.xsd
+ 
+ # JetBrains Rider
+ *.sln.iml
++
++# Local tModLoader install path (copy from Directory.Build.props.example)
++Directory.Build.props
+diff --git a/Content/NPCs/Bosses/Draedon/MarsBody.cs b/Content/NPCs/Bosses/Draedon/MarsBody.cs
+index ff7a406..01a193d 100644
+--- a/Content/NPCs/Bosses/Draedon/MarsBody.cs
++++ b/Content/NPCs/Bosses/Draedon/MarsBody.cs
+@@ -1,4 +1,4 @@
+-﻿using System.Runtime.CompilerServices;
++using System.Runtime.CompilerServices;
+ 
+ using CalamityMod.NPCs.ExoMechs.Thanatos;
+ using CalamityMod.Sounds;
+@@ -407,6 +407,17 @@ public partial class MarsBody : ModNPC, IBossDowned
+         PlayerDataManager.CanUseItemEvent += DisableItemUsageWhenChargingUp;
+     }
+ 
++    public override void Unload()
++    {
++        On_NPC.GetMeleeCollisionData -= ExpandEffectiveHitboxForHands;
++        PlayerDataManager.CanUseItemEvent -= DisableItemUsageWhenChargingUp;
++
++        if (Main.netMode != NetmodeID.Server)
++            UnloadInstancedTargets();
++
++        base.Unload();
++    }
++
+     private void ExpandEffectiveHitboxForHands(On_NPC.orig_GetMeleeCollisionData orig, Rectangle victimHitbox, int enemyIndex, ref int specialHitSetter, ref float damageMultiplier, ref Rectangle npcRect)
+     {
+         orig(victimHitbox, enemyIndex, ref specialHitSetter, ref damageMultiplier, ref npcRect);
+diff --git a/Content/NPCs/Bosses/Draedon/Rendering/MarsBody.Rendering.cs b/Content/NPCs/Bosses/Draedon/Rendering/MarsBody.Rendering.cs
+index 59fef05..f7b9299 100644
+--- a/Content/NPCs/Bosses/Draedon/Rendering/MarsBody.Rendering.cs
++++ b/Content/NPCs/Bosses/Draedon/Rendering/MarsBody.Rendering.cs
+@@ -1,4 +1,4 @@
+-﻿using Luminance.Assets;
++using Luminance.Assets;
+ using Luminance.Common.Easings;
+ using Luminance.Core.Graphics;
+ using Microsoft.Xna.Framework;
+@@ -289,6 +289,31 @@ public partial class MarsBody : ModNPC
+         Main.ContentThatNeedsRenderTargets.Add(BurnMarkTarget);
+     }
+ 
++    /// <summary>
++    /// Releases Mars' instanced render targets from <see cref="Main.ContentThatNeedsRenderTargets"/> on mod unload.
++    /// </summary>
++    internal static void UnloadInstancedTargets()
++    {
++        static void RemoveAndReset(InstancedRequestableTarget? target)
++        {
++            if (target is null)
++                return;
++
++            Main.ContentThatNeedsRenderTargets.Remove(target);
++            target.Reset();
++        }
++
++        RemoveAndReset(BackRopeTarget);
++        RemoveAndReset(ThrusterTarget);
++        RemoveAndReset(OverallTarget);
++        RemoveAndReset(BurnMarkTarget);
++    }
++
++    private static Rectangle BurnMarkCullCameraRect(int padding)
++    {
++        return new Rectangle((int)Main.screenPosition.X - padding, (int)Main.screenPosition.Y - padding, Main.screenWidth + padding * 2, Main.screenHeight + padding * 2);
++    }
++
+     public override bool PreDraw(SpriteBatch spriteBatch, Vector2 screenPos, Color drawColor)
+     {
+         if (!NPC.IsABestiaryIconDummy && !ModContent.GetInstance<EndCreditsScene>().IsActive)
+@@ -406,8 +431,16 @@ public partial class MarsBody : ModNPC
+             burnMarkShader.Apply();
+ 
+             Texture2D noise = PerlinNoise;
++            Rectangle cameraRect = BurnMarkCullCameraRect(400);
++            float noiseRadius = noise.Width * 0.5f * 0.4f;
+             foreach (BurnMarkImpact mark in BurnMarks)
+             {
++                Vector2 worldCenter = NPC.Center + mark.RelativePosition.RotatedBy(NPC.rotation);
++                float extent = mark.Scale * noiseRadius + 96f;
++                Rectangle markWorldBounds = new Rectangle((int)(worldCenter.X - extent), (int)(worldCenter.Y - extent), (int)(extent * 2f), (int)(extent * 2f));
++                if (!markWorldBounds.Intersects(cameraRect))
++                    continue;
++
+                 Vector2 renderTargetScreenPos = NPC.Center - targetSize * 0.5f;
+                 Vector2 renderTargetDrawPosition = NPC.Center - renderTargetScreenPos;
+                 float lifetimeRatio = mark.Time / (float)mark.Lifetime;
+diff --git a/Content/NPCs/Bosses/NamelessDeity/NamelessDeityBoss.Initialization.cs b/Content/NPCs/Bosses/NamelessDeity/NamelessDeityBoss.Initialization.cs
+index 2a85ff3..48e1bda 100644
+--- a/Content/NPCs/Bosses/NamelessDeity/NamelessDeityBoss.Initialization.cs
++++ b/Content/NPCs/Bosses/NamelessDeity/NamelessDeityBoss.Initialization.cs
+@@ -1,4 +1,4 @@
+-﻿using Luminance.Core.Graphics;
++using Luminance.Core.Graphics;
+ using Luminance.Core.Hooking;
+ 
+ using Microsoft.Xna.Framework;
+@@ -359,11 +359,11 @@ public partial class NamelessDeityBoss : ModNPC, IBossChecklistSupport, IInfernu
+         return true;
+     }
+ 
+-    private int AddDynamicFlavorText(On_UIBestiaryEntryInfoPage.orig_GetBestiaryInfoCategory orig, UIBestiaryEntryInfoPage self, IBestiaryInfoElement element)
++    private UIBestiaryEntryInfoPage.BestiaryInfoCategory AddDynamicFlavorText(On_UIBestiaryEntryInfoPage.orig_GetBestiaryInfoCategory orig, UIBestiaryEntryInfoPage self, IBestiaryInfoElement element)
+     {
+         // UIBestiaryEntryInfoPage.BestiaryInfoCategory.Flavor is inaccessible due to access modifiers. Use its literal value of 2 instead.
+         if (element is DynamicFlavorTextBestiaryInfoElement)
+-            return 2;
++            return (UIBestiaryEntryInfoPage.BestiaryInfoCategory)2;
+ 
+         return orig(self, element);
+     }
+diff --git a/Content/NPCs/Bosses/NamelessDeity/Rendering/NamelessDeityRenderComposite.cs b/Content/NPCs/Bosses/NamelessDeity/Rendering/NamelessDeityRenderComposite.cs
+index fa40885..6fa1b91 100644
+--- a/Content/NPCs/Bosses/NamelessDeity/Rendering/NamelessDeityRenderComposite.cs
++++ b/Content/NPCs/Bosses/NamelessDeity/Rendering/NamelessDeityRenderComposite.cs
+@@ -1,4 +1,4 @@
+-﻿using Microsoft.Xna.Framework;
++using Microsoft.Xna.Framework;
+ using Microsoft.Xna.Framework.Graphics;
+ using NoxusBoss.Content.NPCs.Bosses.NamelessDeity.FormPresets;
+ using NoxusBoss.Content.NPCs.Bosses.NamelessDeity.Rendering.RenderSteps;
+@@ -107,6 +107,8 @@ public class NamelessDeityRenderComposite
+             RenderSteps.Add(step);
+         }
+ 
++        RenderSteps.Sort((a, b) => a.LayerIndex.CompareTo(b.LayerIndex));
++
+         RerollAllSwappableTextures();
+         if (CompositeTarget is null)
+         {
+@@ -168,11 +170,10 @@ public class NamelessDeityRenderComposite
+     {
+         CompositeTarget.Request(2500, 2500, TargetIdentifier, () =>
+         {
+-            IOrderedEnumerable<INamelessDeityRenderStep> orderedSteps = RenderSteps.OrderBy(s => s.LayerIndex);
+             Vector2 viewportArea = ViewportSize;
+ 
+             ResetSpriteBatch(false);
+-            foreach (INamelessDeityRenderStep step in orderedSteps)
++            foreach (INamelessDeityRenderStep step in RenderSteps)
+             {
+                 // Primitive rendering resets the scissor rectangle based on screen width and height, rather than viewport width and height.
+                 // This leads to frustrating situations where parts of the rendering process get mysteriously cut off, which drove me mad in the past when debugging the Avatar's rendering.
+diff --git a/Content/NPCs/Bosses/NamelessDeity/SpecificEffectManagers/CosmicBackgroundSystem.cs b/Content/NPCs/Bosses/NamelessDeity/SpecificEffectManagers/CosmicBackgroundSystem.cs
+index c732109..7059003 100644
+--- a/Content/NPCs/Bosses/NamelessDeity/SpecificEffectManagers/CosmicBackgroundSystem.cs
++++ b/Content/NPCs/Bosses/NamelessDeity/SpecificEffectManagers/CosmicBackgroundSystem.cs
+@@ -1,4 +1,4 @@
+-﻿using System.Runtime.CompilerServices;
++using System.Runtime.CompilerServices;
+ using Luminance.Core.Graphics;
+ using Microsoft.Xna.Framework;
+ using Microsoft.Xna.Framework.Graphics;
+@@ -194,4 +194,10 @@ public class CosmicBackgroundSystem : ModSystem
+         Main.spriteBatch.Draw(TextureAssets.MagicPixel.Value, drawPosition, null, drawColor, 0f, TextureAssets.MagicPixel.Value.Size() * 0.5f, scale, 0, 0f);
+         Main.pixelShader.CurrentTechnique.Passes[0].Apply();
+     }
++
++    public override void Unload()
++    {
++        KalisetFractal?.Dispose();
++        base.Unload();
++    }
+ }
+diff --git a/Content/NPCs/Bosses/NamelessDeity/SpecificEffectManagers/NamelessBossBar.cs b/Content/NPCs/Bosses/NamelessDeity/SpecificEffectManagers/NamelessBossBar.cs
+index 5e480ce..e17cc72 100644
+--- a/Content/NPCs/Bosses/NamelessDeity/SpecificEffectManagers/NamelessBossBar.cs
++++ b/Content/NPCs/Bosses/NamelessDeity/SpecificEffectManagers/NamelessBossBar.cs
+@@ -1,4 +1,4 @@
+-﻿using Luminance.Core.Graphics;
++using Luminance.Core.Graphics;
+ using Microsoft.Xna.Framework;
+ using Microsoft.Xna.Framework.Graphics;
+ using NoxusBoss.Assets;
+@@ -50,6 +50,13 @@ public class NamelessBossBar : ModBossBar
+         });
+     }
+ 
++    public override void Unload()
++    {
++        RenderTargetManager.RenderTargetUpdateLoopEvent -= DrawToTargetWrapper;
++        BarTarget?.Dispose();
++        base.Unload();
++    }
++
+     private void DrawToTargetWrapper()
+     {
+         if (NamelessDeityBoss.Myself is null)
+diff --git a/Content/Tiles/EternalGardenGrass.cs b/Content/Tiles/EternalGardenGrass.cs
+index 44a5c14..955a5bb 100644
+--- a/Content/Tiles/EternalGardenGrass.cs
++++ b/Content/Tiles/EternalGardenGrass.cs
+@@ -1,4 +1,4 @@
+-﻿using Microsoft.Xna.Framework;
++using Microsoft.Xna.Framework;
+ using Microsoft.Xna.Framework.Graphics;
+ using NoxusBoss.Assets;
+ using NoxusBoss.Content.NPCs.Bosses.NamelessDeity.FormPresets;
+@@ -27,7 +27,7 @@ public class EternalGardenGrass : ModTile
+         Main.tileMerge[Type][TileID.Grass] = true;
+         Main.tileMerge[TileID.Grass][Type] = true;
+ 
+-        DustType = TileID.Grass;
++        DustType = DustID.Grass;
+         RegisterItemDrop(ItemID.DirtBlock);
+ 
+         AddMapEntry(new Color(43, 235, 129));
+diff --git a/Content/Tiles/GenesisComponents/GenesisGrass.cs b/Content/Tiles/GenesisComponents/GenesisGrass.cs
+index ec6e9a3..c5de6a2 100644
+--- a/Content/Tiles/GenesisComponents/GenesisGrass.cs
++++ b/Content/Tiles/GenesisComponents/GenesisGrass.cs
+@@ -1,4 +1,4 @@
+-﻿using Microsoft.Xna.Framework;
++using Microsoft.Xna.Framework;
+ using Microsoft.Xna.Framework.Graphics;
+ using NoxusBoss.Content.Tiles.GenesisComponents.Seedling;
+ using NoxusBoss.Core.GlobalInstances;
+@@ -33,7 +33,7 @@ public class GenesisGrass : ModTile
+         Main.tileMerge[Type][TileID.Grass] = true;
+         Main.tileMerge[TileID.Grass][Type] = true;
+ 
+-        DustType = TileID.Grass;
++        DustType = DustID.Grass;
+         RegisterItemDrop(ItemID.DirtBlock);
+ 
+         AddMapEntry(new Color(174, 23, 51));
+diff --git a/Core/CrossCompatibility/Inbound/BaseCalamity/CalamityCompatibility.cs b/Core/CrossCompatibility/Inbound/BaseCalamity/CalamityCompatibility.cs
+index 25f0eb0..5264c37 100644
+--- a/Core/CrossCompatibility/Inbound/BaseCalamity/CalamityCompatibility.cs
++++ b/Core/CrossCompatibility/Inbound/BaseCalamity/CalamityCompatibility.cs
+@@ -1,5 +1,6 @@
+-﻿using CalamityMod;
++using CalamityMod;
+ using CalamityMod.CalPlayer;
++using static NoxusBoss.Core.Utilities.Utilities;
+ using Terraria;
+ using Terraria.ID;
+ using Terraria.ModLoader;
+@@ -70,7 +71,8 @@ public class CalamityCompatibility : ModSystem
+     [JITWhenModsEnabled(ModName)]
+     public static void SetLifeMaxByMode_ApplyCalBossHPBoost(NPC npc)
+     {
+-        long effectiveNewHP = npc.lifeMax + (long)Math.Round(npc.lifeMax * (double)(CalamityConfig.Instance.BossHealthBoost * 0.01));
++        float bossHpBoost = GetFromCalamityConfig<float>("BossHealthBoost", 0f);
++        long effectiveNewHP = npc.lifeMax + (long)Math.Round(npc.lifeMax * (double)(bossHpBoost * 0.01));
+         effectiveNewHP = Utils.Clamp(effectiveNewHP, 1, int.MaxValue);
+         npc.lifeMax = (int)effectiveNewHP;
+     }
+@@ -135,4 +137,31 @@ public class CalamityCompatibility : ModSystem
+         CalamityPlayer calPlayer = p.Calamity();
+         calPlayer.stealthUIAlpha = -0.25f;
+     }
++
++    private static int? permafrostTownNpcType;
++
++    /// <summary>
++    /// Calamity's Permafrost town NPC <see cref="NPC.type"/>. Some Calamity versions register it as <c>Archmage</c>, others as <c>DILF</c>.
++    /// </summary>
++    /// <returns><see cref="NPCID.None"/> if Calamity is disabled or the NPC could not be resolved.</returns>
++    public static int GetPermafrostTownNpcType()
++    {
++        if (permafrostTownNpcType.HasValue)
++            return permafrostTownNpcType.Value;
++
++        if (!ModLoader.TryGetMod(ModName, out Mod cal))
++        {
++            permafrostTownNpcType = NPCID.None;
++            return permafrostTownNpcType.Value;
++        }
++
++        if (cal.TryFind<ModNPC>("Archmage", out ModNPC archmage))
++            permafrostTownNpcType = archmage.Type;
++        else if (cal.TryFind<ModNPC>("DILF", out ModNPC dilf))
++            permafrostTownNpcType = dilf.Type;
++        else
++            permafrostTownNpcType = NPCID.None;
++
++        return permafrostTownNpcType.Value;
++    }
+ }
+diff --git a/Core/GlobalInstances/GlobalNPCEventHandlers_TownNPCs.cs b/Core/GlobalInstances/GlobalNPCEventHandlers_TownNPCs.cs
+index b4e96e4..2797a82 100644
+--- a/Core/GlobalInstances/GlobalNPCEventHandlers_TownNPCs.cs
++++ b/Core/GlobalInstances/GlobalNPCEventHandlers_TownNPCs.cs
+@@ -1,4 +1,4 @@
+-﻿using NoxusBoss.Content.Items;
++using NoxusBoss.Content.Items;
+ using NoxusBoss.Content.Items.Dyes;
+ using NoxusBoss.Content.NPCs.Bosses.Avatar.SecondPhaseForm;
+ using NoxusBoss.Content.NPCs.Friendly;
+@@ -14,7 +14,6 @@ using Terraria;
+ using Terraria.ID;
+ using Terraria.Localization;
+ using Terraria.ModLoader;
+-using PermafrostNPC = CalamityMod.NPCs.TownNPCs.DILF;
+ 
+ namespace NoxusBoss.Core.GlobalInstances;
+ 
+@@ -108,7 +107,7 @@ public partial class GlobalNPCEventHandlers : GlobalNPC
+     [JITWhenModsEnabled(CalamityCompatibility.ModName)]
+     private void GetChat_Calamity(NPC npc, ref string chat)
+     {
+-        if (npc.type == ModContent.NPCType<PermafrostNPC>() && !PermafrostKeepWorldGen.PlayerGivenKey)
++        if (npc.type == CalamityCompatibility.GetPermafrostTownNpcType() && npc.type != NPCID.None && !PermafrostKeepWorldGen.PlayerGivenKey)
+         {
+             PermafrostKeepWorldGen.PlayerGivenKey = true;
+             if (Main.netMode != NetmodeID.SinglePlayer)
+diff --git a/Core/Graphics/ArbitraryScreenDistortion/ArbitraryScreenDistortionSystem.cs b/Core/Graphics/ArbitraryScreenDistortion/ArbitraryScreenDistortionSystem.cs
+index 0ebf0f4..b54594a 100644
+--- a/Core/Graphics/ArbitraryScreenDistortion/ArbitraryScreenDistortionSystem.cs
++++ b/Core/Graphics/ArbitraryScreenDistortion/ArbitraryScreenDistortionSystem.cs
+@@ -1,4 +1,4 @@
+-﻿using Luminance.Core.Graphics;
++using Luminance.Core.Graphics;
+ using Microsoft.Xna.Framework;
+ using Microsoft.Xna.Framework.Graphics;
+ using Terraria;
+@@ -38,8 +38,19 @@ public class ArbitraryScreenDistortionSystem : ModSystem
+         RenderTargetManager.RenderTargetUpdateLoopEvent += UpdateTargets;
+     }
+ 
++    public override void Unload()
++    {
++        RenderTargetManager.RenderTargetUpdateLoopEvent -= UpdateTargets;
++        DistortionTarget?.Dispose();
++        DistortionExclusionTarget?.Dispose();
++        base.Unload();
++    }
++
+     private void UpdateTargets()
+     {
++        if (Main.gameMenu)
++            return;
++
+         bool anyDistortionsInEffect = distortionActionQueue.Count >= 1 || distortionExclusionActionQueue.Count >= 1;
+         GraphicsDevice graphicsDevice = Main.instance.GraphicsDevice;
+         if (anyDistortionsInEffect)
+diff --git a/Core/Graphics/HeatDistortion/ScreenDataHeatDistortionSystem.cs b/Core/Graphics/HeatDistortion/ScreenDataHeatDistortionSystem.cs
+index 57aeaa2..3389f8a 100644
+--- a/Core/Graphics/HeatDistortion/ScreenDataHeatDistortionSystem.cs
++++ b/Core/Graphics/HeatDistortion/ScreenDataHeatDistortionSystem.cs
+@@ -1,4 +1,4 @@
+-﻿using Luminance.Core.Graphics;
++using Luminance.Core.Graphics;
+ using Microsoft.Xna.Framework.Graphics;
+ using NoxusBoss.Assets;
+ using NoxusBoss.Content.Particles.Metaballs;
+@@ -43,9 +43,26 @@ public class ScreenDataHeatDistortionSystem : ModSystem
+         Main.ContentThatNeedsRenderTargets.Add(HeatExclusionTarget);
+     }
+ 
++    public override void Unload()
++    {
++        if (HeatDistortionTarget is not null)
++        {
++            Main.ContentThatNeedsRenderTargets.Remove(HeatDistortionTarget);
++            HeatDistortionTarget.Reset();
++        }
++
++        if (HeatExclusionTarget is not null)
++        {
++            Main.ContentThatNeedsRenderTargets.Remove(HeatExclusionTarget);
++            HeatExclusionTarget.Reset();
++        }
++
++        base.Unload();
++    }
++
+     public override void PostUpdateEverything()
+     {
+-        if (Main.netMode == NetmodeID.Server || (HeatDistortionData.Count <= 0 && ExclusionData.Count <= 0))
++        if (Main.netMode == NetmodeID.Server || Main.gameMenu || (HeatDistortionData.Count <= 0 && ExclusionData.Count <= 0))
+             return;
+ 
+         HeatDistortionTarget.Request(Main.screenWidth, Main.screenHeight, 0, () =>
+diff --git a/Core/Graphics/Players/PlayerPostProcessingShaderSystem.cs b/Core/Graphics/Players/PlayerPostProcessingShaderSystem.cs
+index ba2c786..4f28a30 100644
+--- a/Core/Graphics/Players/PlayerPostProcessingShaderSystem.cs
++++ b/Core/Graphics/Players/PlayerPostProcessingShaderSystem.cs
+@@ -1,4 +1,4 @@
+-﻿using Luminance.Core.Graphics;
++using Luminance.Core.Graphics;
+ 
+ using Microsoft.Xna.Framework;
+ using Microsoft.Xna.Framework.Graphics;
+@@ -42,6 +42,36 @@ public class PlayerPostProcessingShaderSystem : ModSystem
+         On_LegacyPlayerRenderer.DrawPlayerFull += RenderPlayerWithPostProcessing;
+     }
+ 
++    public override void Unload()
++    {
++        RenderTargetManager.RenderTargetUpdateLoopEvent -= UpdateTargets;
++        On_LegacyPlayerRenderer.DrawPlayerFull -= RenderPlayerWithPostProcessing;
++
++        FinalPlayerTargets.Clear();
++
++        foreach (ManagedRenderTarget target in PlayerTargets.Values)
++            target?.Dispose();
++        foreach (ManagedRenderTarget target in AuxiliaryTargets.Values)
++            target?.Dispose();
++
++        PlayerTargets.Clear();
++        AuxiliaryTargets.Clear();
++
++        base.Unload();
++    }
++
++    private static bool AnyPlayerQueuedPostProcessing()
++    {
++        foreach (Player? player in Main.ActivePlayers)
++        {
++            Referenced<List<PlayerPostProcessingEffect>> effectsRef = player.GetValueRef<List<PlayerPostProcessingEffect>>(PostProcessingEffectsVariableName);
++            if (effectsRef.Value is { Count: > 0 })
++                return true;
++        }
++
++        return false;
++    }
++
+     private void RenderPlayerWithPostProcessing(On_LegacyPlayerRenderer.orig_DrawPlayerFull orig, LegacyPlayerRenderer self, Camera camera, Player drawPlayer)
+     {
+         bool usingPostProcessingEffects = FinalPlayerTargets.TryGetValue(drawPlayer.whoAmI, out ManagedRenderTarget? finalTarget) && finalTarget is not null;
+@@ -77,6 +107,12 @@ public class PlayerPostProcessingShaderSystem : ModSystem
+         if (Main.gameMenu)
+             return;
+ 
++        if (!AnyPlayerQueuedPostProcessing())
++        {
++            FinalPlayerTargets.Clear();
++            return;
++        }
++
+         VerifyPlayerTargetSizes();
+ 
+         FinalPlayerTargets.Clear();
+diff --git a/Core/Graphics/RenderTargets/InstancedRequestableTarget.cs b/Core/Graphics/RenderTargets/InstancedRequestableTarget.cs
+index 3d8b7c5..3b468cf 100644
+--- a/Core/Graphics/RenderTargets/InstancedRequestableTarget.cs
++++ b/Core/Graphics/RenderTargets/InstancedRequestableTarget.cs
+@@ -1,4 +1,4 @@
+-﻿using Microsoft.Xna.Framework;
++using Microsoft.Xna.Framework;
+ using Microsoft.Xna.Framework.Graphics;
+ using Terraria.GameContent;
+ 
+@@ -10,7 +10,10 @@ public class InstancedRequestableTarget : INeedRenderTargetContent
+ 
+     private readonly List<InstancedTargetData> targetInstances = [];
+ 
+-    private readonly List<int> requestedInstanceIdentifiers = [];
++    /// <summary>
++    /// Identifiers requested this frame. <see cref="HashSet{T}"/> avoids per-identifier linear scans in <see cref="PrepareRenderTarget"/>.
++    /// </summary>
++    private readonly HashSet<int> requestedInstanceIdentifiers = [];
+ 
+     public bool IsReady => isReady;
+ 
+@@ -21,7 +24,16 @@ public class InstancedRequestableTarget : INeedRenderTargetContent
+ 
+     public void Request(int width, int height, int identifier, Action drawAction)
+     {
+-        InstancedTargetData? existingInstance = targetInstances.FirstOrDefault(n => n.Identifier == identifier);
++        InstancedTargetData? existingInstance = null;
++        for (int i = 0; i < targetInstances.Count; i++)
++        {
++            if (targetInstances[i].Identifier == identifier)
++            {
++                existingInstance = targetInstances[i];
++                break;
++            }
++        }
++
+         if (existingInstance is null)
+             targetInstances.Add(new(drawAction, width, height, identifier));
+ 
+@@ -37,8 +49,7 @@ public class InstancedRequestableTarget : INeedRenderTargetContent
+         if (existingInstance is not null)
+             existingInstance.DrawAction = drawAction;
+ 
+-        if (!requestedInstanceIdentifiers.Contains(identifier))
+-            requestedInstanceIdentifiers.Add(identifier);
++        requestedInstanceIdentifiers.Add(identifier);
+     }
+ 
+     /// <summary>
+diff --git a/Core/Graphics/ScreenShatter/ScreenShatterSystem.cs b/Core/Graphics/ScreenShatter/ScreenShatterSystem.cs
+index 5898b52..2c4a018 100644
+--- a/Core/Graphics/ScreenShatter/ScreenShatterSystem.cs
++++ b/Core/Graphics/ScreenShatter/ScreenShatterSystem.cs
+@@ -1,4 +1,6 @@
+-﻿using Luminance.Core.Graphics;
++using System;
++
++using Luminance.Core.Graphics;
+ using Microsoft.Xna.Framework;
+ using Microsoft.Xna.Framework.Graphics;
+ using NoxusBoss.Assets;
+@@ -17,6 +19,11 @@ namespace NoxusBoss.Core.Graphics.ScreenShatter;
+ [Autoload(Side = ModSide.Client)]
+ public class ScreenShatterSystem : ModSystem
+ {
++    /// <summary>
++    /// Reused vertex buffer for shard triangles to avoid per-frame allocations and <see cref="List{T}.ToArray"/> copies during shatter draws.
++    /// </summary>
++    private static VertexPositionColorNormalTexture[] shardVertexScratch = [];
++
+     private static LineSegment[] manualSliceLines;
+ 
+     private static int slowDuration;
+@@ -68,6 +75,14 @@ public class ScreenShatterSystem : ModSystem
+         });
+     }
+ 
++    public override void Unload()
++    {
++        Main.OnPostDraw -= DrawShatterEffect;
++        On_FilterManager.EndCapture -= EndCaptureManager;
++        ContentsBeforeShattering?.Dispose();
++        base.Unload();
++    }
++
+     private void EndCaptureManager(On_FilterManager.orig_EndCapture orig, FilterManager self, RenderTarget2D finalTexture, RenderTarget2D screenTarget1, RenderTarget2D screenTarget2, Color clearColor)
+     {
+         orig(self, finalTexture, screenTarget1, screenTarget2, clearColor);
+@@ -83,8 +98,13 @@ public class ScreenShatterSystem : ModSystem
+ 
+         // Draw and update all shards.
+         Vector3 screenArea = new Vector3(Main.screenWidth, Main.screenHeight, 1f);
+-        List<VertexPositionColorNormalTexture> shardVertices = [];
++        int shardTriangleCount = screenTriangles.Count;
++        int vertexCount = shardTriangleCount * 3;
++        if (shardVertexScratch.Length < vertexCount)
++            Array.Resize(ref shardVertexScratch, Math.Max(vertexCount, 768));
++
+         Color shardColor = Color.White * Pow(ShardOpacity, 0.56f);
++        int vertexIndex = 0;
+         foreach (ScreenTriangleShard shard in screenTriangles)
+         {
+             Vector3 a = new Vector3(shard.ScreenCoord1, 0f);
+@@ -106,15 +126,15 @@ public class ScreenShatterSystem : ModSystem
+             Vector3 drawPositionA = (a - center) * screenArea + new Vector3(shard.DrawPosition, 0f);
+             Vector3 drawPositionB = (b - center) * screenArea + new Vector3(shard.DrawPosition, 0f);
+             Vector3 drawPositionC = (c - center) * screenArea + new Vector3(shard.DrawPosition, 0f);
+-            shardVertices.Add(new VertexPositionColorNormalTexture(drawPositionA, shardColor, shard.ScreenCoord1, Vector3.UnitX));
+-            shardVertices.Add(new VertexPositionColorNormalTexture(drawPositionB, shardColor, shard.ScreenCoord2, Vector3.UnitY));
+-            shardVertices.Add(new VertexPositionColorNormalTexture(drawPositionC, shardColor, shard.ScreenCoord3, Vector3.UnitZ));
++            shardVertexScratch[vertexIndex++] = new VertexPositionColorNormalTexture(drawPositionA, shardColor, shard.ScreenCoord1, Vector3.UnitX);
++            shardVertexScratch[vertexIndex++] = new VertexPositionColorNormalTexture(drawPositionB, shardColor, shard.ScreenCoord2, Vector3.UnitY);
++            shardVertexScratch[vertexIndex++] = new VertexPositionColorNormalTexture(drawPositionC, shardColor, shard.ScreenCoord3, Vector3.UnitZ);
+ 
+             for (int i = 0; i < SliceUpdatesPerFrame; i++)
+                 shard.Update();
+         }
+ 
+-        if (shardVertices.Count != 0)
++        if (vertexCount != 0)
+         {
+             CalculatePrimitiveMatrices(Main.screenWidth, Main.screenHeight, out Matrix effectView, out Matrix effectProjection);
+ 
+@@ -130,7 +150,7 @@ public class ScreenShatterSystem : ModSystem
+             shardShader.Apply();
+ 
+             // Draw shard vertices.
+-            Main.instance.GraphicsDevice.DrawUserPrimitives(PrimitiveType.TriangleList, shardVertices.ToArray(), 0, screenTriangles.Count);
++            Main.instance.GraphicsDevice.DrawUserPrimitives(PrimitiveType.TriangleList, shardVertexScratch, 0, shardTriangleCount);
+         }
+ 
+         // Make the shards become more transparent as time goes on, until eventually they disappear.
+diff --git a/Core/Graphics/SpecificEffectManagers/TileTargetManagers.cs b/Core/Graphics/SpecificEffectManagers/TileTargetManagers.cs
+index d65c0f2..5ecf723 100644
+--- a/Core/Graphics/SpecificEffectManagers/TileTargetManagers.cs
++++ b/Core/Graphics/SpecificEffectManagers/TileTargetManagers.cs
+@@ -1,4 +1,4 @@
+-﻿using Luminance.Core.Graphics;
++using Luminance.Core.Graphics;
+ using Microsoft.Xna.Framework;
+ using Microsoft.Xna.Framework.Graphics;
+ using Terraria;
+@@ -48,6 +48,16 @@ public class TileTargetManagers : ModSystem
+         RenderTargetManager.RenderTargetUpdateLoopEvent += RecordLiquids;
+     }
+ 
++    public override void Unload()
++    {
++        RenderTargetManager.RenderTargetUpdateLoopEvent -= RecordTiles;
++        RenderTargetManager.RenderTargetUpdateLoopEvent -= RecordLiquids;
++        TileTarget?.Dispose();
++        LiquidTarget?.Dispose();
++        LiquidSlopesTarget?.Dispose();
++        base.Unload();
++    }
++
+     private void RecordTiles()
+     {
+         // HUH????
+diff --git a/Core/Graphics/TentInterior/SolynTentInteriorRenderer.cs b/Core/Graphics/TentInterior/SolynTentInteriorRenderer.cs
+index 0f2ffe8..249c04b 100644
+--- a/Core/Graphics/TentInterior/SolynTentInteriorRenderer.cs
++++ b/Core/Graphics/TentInterior/SolynTentInteriorRenderer.cs
+@@ -1,4 +1,4 @@
+-﻿using Luminance.Core.Graphics;
++using Luminance.Core.Graphics;
+ using Microsoft.Xna.Framework;
+ using Microsoft.Xna.Framework.Graphics;
+ using NoxusBoss.Content.Tiles.SolynCampsite;
+@@ -13,6 +13,9 @@ using Terraria.ModLoader;
+ 
+ namespace NoxusBoss.Core.Graphics.TentInterior;
+ 
++/// <summary>
++/// Tent interior capture uses two <see cref="RenderTargetManager.RenderTargetUpdateLoopEvent"/> handlers (back vs front tiles) with separate <see cref="InstancedRequestableTarget"/> identifiers; they cannot be merged into one SpriteBatch span without changing RT capture order.
++/// </summary>
+ [Autoload(Side = ModSide.Client)]
+ public class SolynTentInteriorRenderer : ModSystem
+ {
+@@ -61,6 +64,21 @@ public class SolynTentInteriorRenderer : ModSystem
+         RenderTargetManager.RenderTargetUpdateLoopEvent += RenderToTentTargetB;
+     }
+ 
++    public override void Unload()
++    {
++        On_Main.DrawRain -= DrawTentOverlayWrapper;
++        RenderTargetManager.RenderTargetUpdateLoopEvent -= RenderToTentTargetA;
++        RenderTargetManager.RenderTargetUpdateLoopEvent -= RenderToTentTargetB;
++
++        if (TentTarget is not null)
++        {
++            Main.ContentThatNeedsRenderTargets.Remove(TentTarget);
++            TentTarget.Reset();
++        }
++
++        base.Unload();
++    }
++
+     public override void OnWorldLoad() => OutsideDarkness = 0f;
+ 
+     public override void OnWorldUnload() => OutsideDarkness = 0f;
+diff --git a/Core/Graphics/UI/Bestiary/DynamicFlavorTextBestiaryInfoElement.cs b/Core/Graphics/UI/Bestiary/DynamicFlavorTextBestiaryInfoElement.cs
+index eca1d0c..c390aa9 100644
+--- a/Core/Graphics/UI/Bestiary/DynamicFlavorTextBestiaryInfoElement.cs
++++ b/Core/Graphics/UI/Bestiary/DynamicFlavorTextBestiaryInfoElement.cs
+@@ -1,4 +1,4 @@
+-﻿using Luminance.Core.Graphics;
++using Luminance.Core.Graphics;
+ using Microsoft.Xna.Framework;
+ using Microsoft.Xna.Framework.Graphics;
+ using ReLogic.Content;
+@@ -60,6 +60,7 @@ public class DynamicFlavorTextBestiaryInfoElement(string[] languageKeys, Dynamic
+ 
+     private void PrepareForDrawing()
+     {
++        // SpriteBatch: cannot merge Immediate (LinearWrap) with following Deferred (PointClamp) — different sampler states and sort modes; merging would change text filtering and draw order.
+         Main.spriteBatch.End();
+         Main.spriteBatch.Begin(SpriteSortMode.Immediate, BlendState.AlphaBlend, SamplerState.LinearWrap, DepthStencilState.None, RasterizerState.CullNone, null, Main.UIScaleMatrix);
+ 
+diff --git a/Core/Graphics/UI/Books/SolynBookExchangeUI.cs b/Core/Graphics/UI/Books/SolynBookExchangeUI.cs
+index 8ec1453..5b1d9e6 100644
+--- a/Core/Graphics/UI/Books/SolynBookExchangeUI.cs
++++ b/Core/Graphics/UI/Books/SolynBookExchangeUI.cs
+@@ -1,4 +1,4 @@
+-﻿using Luminance.Common.Easings;
++using Luminance.Common.Easings;
+ using Luminance.Core.Graphics;
+ using Microsoft.Xna.Framework;
+ using Microsoft.Xna.Framework.Graphics;
+@@ -166,6 +166,7 @@ public class SolynBookExchangeUI : ModSystem
+         Rectangle drawArea = new Rectangle((int)(drawBottom.X - backgroundSize.X * 0.5f), (int)(drawBottom.Y - backgroundSize.Y), (int)backgroundSize.X, (int)backgroundSize.Y);
+         Utils.DrawInvBG(Main.spriteBatch, drawArea, new Color(23, 25, 81) * opacity);
+ 
++        // SpriteBatch: Deferred → Immediate split is required — silhouette shader (per-item) uses Immediate + custom pixel shader; slot loop cannot share the prior Deferred batch state.
+         Main.spriteBatch.End();
+         Main.spriteBatch.Begin(SpriteSortMode.Immediate, BlendState.AlphaBlend, SamplerState.LinearClamp, DepthStencilState.None, RasterizerState.CullNone, null, Main.GameViewMatrix.TransformationMatrix);
+ 
+diff --git a/Core/Graphics/UI/Codebreaker/CodebreakerUIRewriter.cs b/Core/Graphics/UI/Codebreaker/CodebreakerUIRewriter.cs
+index 0a75516..4d02636 100644
+--- a/Core/Graphics/UI/Codebreaker/CodebreakerUIRewriter.cs
++++ b/Core/Graphics/UI/Codebreaker/CodebreakerUIRewriter.cs
+@@ -1,4 +1,5 @@
+-﻿using System.Reflection;
++using System;
++using System.Reflection;
+ using CalamityMod;
+ using CalamityMod.TileEntities;
+ using CalamityMod.UI.DraedonSummoning;
+@@ -86,7 +87,95 @@ public class CodebreakerUIRewriter : ModSystem
+         DraedonSummonUIHook.Apply();
+     }
+ 
+-    public override void Unload() => DraedonSummonUIHook?.Undo();
++    public override void Unload()
++    {
++        DraedonSummonUIHook?.Undo();
++        getCodebreakerHasBloodSample = null;
++        sendCodebreakerSummonCalamity = null;
++    }
++
++    /// <summary>
++    /// Calamity replaced legacy <c>CalamityModMessageType</c>-prefixed <see cref="ModPacket"/> writes with <c>CodebreakerSummonStuffPacket.Send()</c>.
++    /// </summary>
++    private static Action? sendCodebreakerSummonCalamity;
++
++    private static void SendCodebreakerSummonToMultiplayer()
++    {
++        if (Main.netMode == NetmodeID.SinglePlayer)
++            return;
++
++        sendCodebreakerSummonCalamity ??= CreateCodebreakerSummonCalamitySender();
++        sendCodebreakerSummonCalamity?.Invoke();
++    }
++
++    private static Action? CreateCodebreakerSummonCalamitySender()
++    {
++        Mod? cal = CalamityCompatibility.Calamity;
++        if (cal is null)
++            return null;
++
++        Type? packetClass = cal.Code.GetType("CalamityMod.Packets.CodebreakerSummonStuffPacket");
++        MethodInfo? newSend = packetClass?.GetMethod("Send", BindingFlags.Public | BindingFlags.Static, binder: null, types: Type.EmptyTypes, modifiers: null);
++        if (newSend is not null)
++            return () => newSend.Invoke(null, null);
++
++        Type? legacyEnum = cal.Code.GetType("CalamityMod.CalamityModMessageType");
++        object? packetId = null;
++        if (legacyEnum is not null && Enum.IsDefined(legacyEnum, "CodebreakerSummonStuff"))
++            packetId = Enum.Parse(legacyEnum, "CodebreakerSummonStuff");
++
++        if (legacyEnum is not null && packetId is not null)
++        {
++            return () =>
++            {
++                ModPacket netMessage = cal.GetPacket();
++                netMessage.Write(Convert.ToByte(packetId));
++                netMessage.Write(CalamityWorld.DraedonSummonCountdown);
++                netMessage.WriteVector2(CalamityWorld.DraedonSummonPosition);
++                netMessage.Write(CalamityWorld.DraedonMechdusa);
++                netMessage.Send();
++            };
++        }
++
++        return null;
++    }
++
++    /// <summary>
++    /// Calamity renamed this flag (<c>ContainsBloodSample</c> → <c>ContainsBloodyVein</c>) and it may be a field; resolve without hard-coding one assembly shape.
++    /// </summary>
++    private static Func<TECodebreaker, bool>? getCodebreakerHasBloodSample;
++
++    private static bool CodebreakerHasBloodSample(TECodebreaker te)
++    {
++        if (te is null)
++            return false;
++
++        if (getCodebreakerHasBloodSample is not null)
++            return getCodebreakerHasBloodSample(te);
++
++        Type type = typeof(TECodebreaker);
++        const BindingFlags flags = BindingFlags.Public | BindingFlags.Instance;
++
++        foreach (string name in new[] { "ContainsBloodyVein", "ContainsBloodSample" })
++        {
++            FieldInfo? field = type.GetField(name, flags);
++            if (field?.FieldType == typeof(bool))
++            {
++                getCodebreakerHasBloodSample = t => (bool)field.GetValue(t)!;
++                return getCodebreakerHasBloodSample(te);
++            }
++
++            PropertyInfo? prop = type.GetProperty(name, flags);
++            if (prop?.PropertyType == typeof(bool) && prop.GetMethod is not null)
++            {
++                getCodebreakerHasBloodSample = t => (bool)prop.GetValue(t)!;
++                return getCodebreakerHasBloodSample(te);
++            }
++        }
++
++        getCodebreakerHasBloodSample = _ => false;
++        return false;
++    }
+ 
+     private static void UpdateCodebreakerSummonRequirements(ILContext context, ManagedILEdit edit)
+     {
+@@ -122,7 +211,7 @@ public class CodebreakerUIRewriter : ModSystem
+         Rectangle clickArea = Utils.CenteredRectangle(drawPosition, contactButton.Size() * VerificationButtonScale);
+ 
+         // Make the icon spin if the codebreaker contains a blood sample.
+-        float iconRotation = codebreakerTileEntity.ContainsBloodSample ? Main.GlobalTimeWrappedHourly * 20f : 0f;
++        float iconRotation = CodebreakerHasBloodSample(codebreakerTileEntity) ? Main.GlobalTimeWrappedHourly * 20f : 0f;
+ 
+         // Check if the mouse is hovering over the contact button area.
+         if (MouseScreenArea.Intersects(clickArea))
+@@ -137,20 +226,12 @@ public class CodebreakerUIRewriter : ModSystem
+             {
+                 CalamityWorld.DraedonSummonCountdown = CalamityWorld.DraedonSummonCountdownMax;
+                 CalamityWorld.DraedonSummonPosition = codebreakerTileEntity.Center + new Vector2(-8f, -100f);
+-                if (Main.zenithWorld && codebreakerTileEntity.ContainsBloodSample)
++                if (Main.zenithWorld && CodebreakerHasBloodSample(codebreakerTileEntity))
+                     CalamityWorld.DraedonMechdusa = true;
+ 
+                 SoundEngine.PlaySound(SummonSound, CalamityWorld.DraedonSummonPosition);
+ 
+-                if (Main.netMode != NetmodeID.SinglePlayer)
+-                {
+-                    ModPacket netMessage = CalamityCompatibility.Calamity.GetPacket();
+-                    netMessage.Write((byte)CalamityModMessageType.CodebreakerSummonStuff);
+-                    netMessage.Write(CalamityWorld.DraedonSummonCountdown);
+-                    netMessage.WriteVector2(CalamityWorld.DraedonSummonPosition);
+-                    netMessage.Write(CalamityWorld.DraedonMechdusa);
+-                    netMessage.Send();
+-                }
++                SendCodebreakerSummonToMultiplayer();
+             }
+         }
+ 
+@@ -166,7 +247,7 @@ public class CodebreakerUIRewriter : ModSystem
+         string contactTextKey = "Contact";
+         if (CommonCalamityVariables.DraedonDefeated)
+             contactTextKey = "Summon";
+-        if (codebreakerTileEntity.ContainsBloodSample)
++        if (CodebreakerHasBloodSample(codebreakerTileEntity))
+             contactTextKey = "Evoke";
+         string contactText = CalamityUtils.GetTextValue("UI." + contactTextKey);
+ 
+@@ -200,17 +281,10 @@ public class CodebreakerUIRewriter : ModSystem
+ 
+                 MarsCombatEvent.MarsBeingSummoned = true;
+ 
+-                if (Main.netMode != NetmodeID.SinglePlayer)
+-                {
+-                    ModPacket netMessage = CalamityCompatibility.Calamity.GetPacket();
+-                    netMessage.Write((byte)CalamityModMessageType.CodebreakerSummonStuff);
+-                    netMessage.Write(CalamityWorld.DraedonSummonCountdown);
+-                    netMessage.WriteVector2(CalamityWorld.DraedonSummonPosition);
+-                    netMessage.Write(CalamityWorld.DraedonMechdusa);
+-                    netMessage.Send();
++                SendCodebreakerSummonToMultiplayer();
+ 
++                if (Main.netMode != NetmodeID.SinglePlayer)
+                     PacketManager.SendPacket<MarsSummonStatusPacket>();
+-                }
+             }
+         }
+ 
+diff --git a/Core/Graphics/UI/HandwrittenNote/HandwrittenNoteUI.cs b/Core/Graphics/UI/HandwrittenNote/HandwrittenNoteUI.cs
+index 1eb37e4..26ddf5a 100644
+--- a/Core/Graphics/UI/HandwrittenNote/HandwrittenNoteUI.cs
++++ b/Core/Graphics/UI/HandwrittenNote/HandwrittenNoteUI.cs
+@@ -1,4 +1,4 @@
+-﻿using Luminance.Common.Easings;
++using Luminance.Common.Easings;
+ using Luminance.Core.Graphics;
+ using Microsoft.Xna.Framework;
+ using Microsoft.Xna.Framework.Graphics;
+@@ -69,6 +69,17 @@ public class HandwrittenNoteUI : ModSystem
+         }
+     }
+ 
++    public override void Unload()
++    {
++        if (TextTarget is not null)
++        {
++            Main.ContentThatNeedsRenderTargets.Remove(TextTarget);
++            TextTarget.Reset();
++        }
++
++        base.Unload();
++    }
++
+     public override void ModifyInterfaceLayers(List<GameInterfaceLayer> layers)
+     {
+         int mouseIndex = layers.FindIndex(layer => layer.Name == "Vanilla: Mouse Text");
+@@ -92,6 +103,7 @@ public class HandwrittenNoteUI : ModSystem
+         if (Main.mouseLeft && Main.mouseLeftRelease && AnimationCompletion >= 0.4f)
+             Active = false;
+ 
++        // SpriteBatch: cannot merge with the following TextTarget.Request inner Begin — outer pass uses Immediate + NonPremultiplied + paper shader; RT pass resets batch with default Begin for text.
+         Main.spriteBatch.End();
+         Main.spriteBatch.Begin(SpriteSortMode.Immediate, BlendState.NonPremultiplied);
+ 
+diff --git a/Core/Graphics/UI/PermafrostTalkSystem.cs b/Core/Graphics/UI/PermafrostTalkSystem.cs
+index 8bc8adb..ba04084 100644
+--- a/Core/Graphics/UI/PermafrostTalkSystem.cs
++++ b/Core/Graphics/UI/PermafrostTalkSystem.cs
+@@ -1,4 +1,4 @@
+-﻿using Microsoft.Xna.Framework;
++using Microsoft.Xna.Framework;
+ using Microsoft.Xna.Framework.Graphics;
+ using NoxusBoss.Assets;
+ using NoxusBoss.Core.CrossCompatibility.Inbound.BaseCalamity;
+@@ -46,8 +46,7 @@ public class PermafrostTalkSystem : ModSystem
+         if (!EffectCanApply)
+             return;
+ 
+-        // Sigh.
+-        PermafrostID = cal.Find<ModNPC>("DILF").Type;
++        PermafrostID = CalamityCompatibility.GetPermafrostTownNpcType();
+ 
+         ClientSideLoad();
+     }
+diff --git a/Core/Utilities/ConfigUtilities.cs b/Core/Utilities/ConfigUtilities.cs
+index 7368361..323afba 100644
+--- a/Core/Utilities/ConfigUtilities.cs
++++ b/Core/Utilities/ConfigUtilities.cs
+@@ -1,12 +1,10 @@
+-﻿using System.Reflection;
++using System.Reflection;
+ using NoxusBoss.Core.CrossCompatibility.Inbound;
+ 
+ namespace NoxusBoss.Core.Utilities;
+ 
+ public static partial class Utilities
+ {
+-    private static FieldInfo? calConfigInstanceField;
+-
+     /// <summary>
+     /// Useful way of acquiring information from Calamity's config without a strong reference.
+     /// </summary>
+@@ -19,18 +17,43 @@ public static partial class Utilities
+         if (ModReferences.Calamity is null)
+             return defaultValue;
+ 
+-        // Immediately return the default value if Calamity's config doesn't exist for some reason.
+-        Type? calConfigType = ModReferences.Calamity.Code.GetType("CalamityMod.CalamityConfig") ?? ModReferences.Calamity.Code.GetType("CalamityMod.CalamityClientConfig");
+-        if (calConfigType is null)
+-            return defaultValue;
++        // Calamity 2.x split config into client vs server; legacy CalamityConfig may still exist on older builds.
++        ReadOnlySpan<string> typeNames =
++        [
++            "CalamityMod.CalamityConfig",
++            "CalamityMod.CalamityClientConfig",
++            "CalamityMod.CalamityServerConfig",
++        ];
+ 
+-        // Use reflection to access the property's data. If this fails, return the default value.
+-        calConfigInstanceField ??= calConfigType.GetField("Instance");
+-        object? calConfig = calConfigInstanceField?.GetValue(null) ?? null;
+-        if (calConfig is null)
+-            return defaultValue;
++        foreach (string fullName in typeNames)
++        {
++            Type? calConfigType = ModReferences.Calamity.Code.GetType(fullName);
++            if (calConfigType is null)
++                continue;
++
++            FieldInfo? instanceField = calConfigType.GetField("Instance");
++            object? calConfig = instanceField?.GetValue(null);
++            if (calConfig is null)
++                continue;
++
++            PropertyInfo? property = calConfig.GetType().GetProperty(propertyName, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
++            object? raw = property?.GetValue(calConfig);
++            if (raw is null)
++                continue;
++
++            if (raw is T typed)
++                return typed;
++
++            try
++            {
++                return (T)Convert.ChangeType(raw, typeof(T));
++            }
++            catch
++            {
++                // Property exists but is not convertible to T; try next config type.
++            }
++        }
+ 
+-        PropertyInfo? property = calConfig?.GetType()?.GetProperty(propertyName, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+-        return (T)(property?.GetValue(calConfig) ?? defaultValue!);
++        return defaultValue;
+     }
+ }
+diff --git a/Core/World/TileDisabling/TileDisablingSystem.cs b/Core/World/TileDisabling/TileDisablingSystem.cs
+index 081e547..5d0df57 100644
+--- a/Core/World/TileDisabling/TileDisablingSystem.cs
++++ b/Core/World/TileDisabling/TileDisablingSystem.cs
+@@ -1,4 +1,4 @@
+-﻿using System.Reflection;
++using System.Reflection;
+ using CalamityMod;
+ using CalamityMod.CalPlayer;
+ using CalamityMod.Physics;
+@@ -64,7 +64,6 @@ public class TileDisablingSystem : ModSystem
+         On_Collision.WaterCollision += DisableLiquidCollision2;
+         On_Collision.DrownCollision += DisableLiquidCollision3;
+         On_Collision.LavaCollision += DisableLavaCollision;
+-        On_Collision.SwitchTiles += DisableSwitchChecks;
+         On_Collision.SwitchTilesNew += DisableSwitchChecks2;
+         On_Collision.SolidCollision_Vector2_int_int += ImLosingIt1;
+         On_Collision.SolidCollision_Vector2_int_int_bool += ImLosingIt2;
+@@ -155,14 +154,6 @@ public class TileDisablingSystem : ModSystem
+         return orig(self, Position, Width, Height, oldPosition, objType);
+     }
+ 
+-    private bool DisableSwitchChecks(On_Collision.orig_SwitchTiles orig, Vector2 Position, int Width, int Height, Vector2 oldPosition, int objType)
+-    {
+-        if (TilesAreUninteractable)
+-            return false;
+-
+-        return orig(Position, Width, Height, oldPosition, objType);
+-    }
+-
+     private bool ImLosingIt1(On_Collision.orig_SolidCollision_Vector2_int_int orig, Vector2 Position, int Width, int Height)
+     {
+         if (TilesAreUninteractable)
+diff --git a/NoxusBoss.csproj b/NoxusBoss.csproj
+index 2d2d9c8..d7f8444 100644
+--- a/NoxusBoss.csproj
++++ b/NoxusBoss.csproj
+@@ -1,10 +1,28 @@
+ <Project Sdk="Microsoft.NET.Sdk">
+ 
+-  <!-- Import tModLoader mod properties -->
+-  <Import Project="..\tModLoader.targets"/>
++  <!--
++    tMLMod.targets must sit next to tModLoader.dll + Libraries (Steam install).
++    Documents\...\tModLoader often only has ModSources — do not use it unless tModLoader.dll is there.
++    Override anytime: set env TMLSteamPath, Directory.Build.props, or -p:TMLSteamPath="...\tModLoader\"
++  -->
++  <PropertyGroup>
++    <_TmlNearModSources>$([MSBuild]::NormalizeDirectory('$(MSBuildProjectDirectory)', '..', '..'))</_TmlNearModSources>
++    <TMLSteamPath Condition="'$(TMLSteamPath)' == '' and Exists('$(_TmlNearModSources)tMLMod.targets') and Exists('$(_TmlNearModSources)tModLoader.dll')">$(_TmlNearModSources)</TMLSteamPath>
++    <TMLSteamPath Condition="'$(TMLSteamPath)' == '' and Exists('D:\SteamLibrary\steamapps\common\tModLoader\tMLMod.targets') and Exists('D:\SteamLibrary\steamapps\common\tModLoader\tModLoader.dll')">$([MSBuild]::NormalizeDirectory('D:\SteamLibrary\steamapps\common\tModLoader'))</TMLSteamPath>
++    <TMLSteamPath Condition="'$(TMLSteamPath)' == '' and Exists('$(MSBuildProgramFiles32)\Steam\steamapps\common\tModLoader\tMLMod.targets') and Exists('$(MSBuildProgramFiles32)\Steam\steamapps\common\tModLoader\tModLoader.dll')">$([MSBuild]::NormalizeDirectory('$(MSBuildProgramFiles32)\Steam\steamapps\common\tModLoader'))</TMLSteamPath>
++    <TMLSteamPath Condition="'$(TMLSteamPath)' == '' and Exists('$(ProgramW6432)\Steam\steamapps\common\tModLoader\tMLMod.targets') and Exists('$(ProgramW6432)\Steam\steamapps\common\tModLoader\tModLoader.dll')">$([MSBuild]::NormalizeDirectory('$(ProgramW6432)\Steam\steamapps\common\tModLoader'))</TMLSteamPath>
++  </PropertyGroup>
++
++  <Import Project="$(TMLSteamPath)tMLMod.targets" Condition="'$(TMLSteamPath)' != '' and Exists('$(TMLSteamPath)tMLMod.targets')"/>
++
++  <Target Name="EnsureTMLSteamPath" BeforeTargets="PrepareForBuild">
++    <Error Condition="'$(TMLSteamPath)' == '' or !Exists('$(TMLSteamPath)tMLMod.targets') or !Exists('$(TMLSteamPath)tModLoader.dll')"
++           Text="Could not find a full tModLoader install (need tMLMod.targets + tModLoader.dll + Libraries). Point TMLSteamPath at your Steam folder, e.g. ...\steamapps\common\tModLoader\ — dotnet build -p:TMLSteamPath=&quot;C:\Program Files (x86)\Steam\steamapps\common\tModLoader\&quot; or copy Directory.Build.props.example to Directory.Build.props." />
++  </Target>
+ 
+-  <!-- General -->
++  <!-- General (TargetFramework also set by tMLMod.targets when imported; keep here so SDK loads if props missing) -->
+   <PropertyGroup>
++    <TargetFramework>net8.0</TargetFramework>
+     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+     <Nullable>enable</Nullable>
+     <ImplicitUsings>enable</ImplicitUsings>
+diff --git a/WoTGAssetRebuilder/Program.cs b/WoTGAssetRebuilder/Program.cs
+index 1043185..8815fc1 100644
+--- a/WoTGAssetRebuilder/Program.cs
++++ b/WoTGAssetRebuilder/Program.cs
+@@ -1,4 +1,4 @@
+-﻿using System.CodeDom.Compiler;
++using System.CodeDom.Compiler;
+ using System.Reflection;
+ using System.Text;
+ using System.Text.RegularExpressions;
+@@ -37,20 +37,19 @@ internal partial class Program
+ 
+         List<string> pngPaths = Directory.GetFiles(assetContentsDirectory, "*.png", SearchOption.AllDirectories).ToList();
+         List<string> oggPaths = Directory.GetFiles(assetContentsDirectory, "*.ogg", SearchOption.AllDirectories).ToList();
+-        File.WriteAllText(outputFileName, ProcessAssetContents(pngPaths, oggPaths, Path.GetFileNameWithoutExtension(outputFileName), relativePath));
++        string assetRoot = Path.GetFullPath(assetContentsDirectory);
++        File.WriteAllText(outputFileName, ProcessAssetContents(pngPaths, oggPaths, Path.GetFileNameWithoutExtension(outputFileName), relativePath, assetRoot));
+ 
+         Console.WriteLine("Asset file generated successfully.");
+     }
+ 
+     /// <summary>
+-    /// Determines the substring of a path relative to a given target directory, clearing away the first half of the directory.
++    /// Builds the tModLoader content path: {modInternalName}/Assets/{path relative to the Assets folder on disk}.
+     /// </summary>
+-    /// <param name="fullPath">The full path to prune.</param>
+-    /// <param name="targetDirectory">The target directory to prune relative to.</param>
+-    private static string GetRelativePath(string fullPath, string targetDirectory)
++    private static string GetModContentPath(string fullPath, string assetsDirectoryFullPath, string modInternalName)
+     {
+-        int index = fullPath.IndexOf(targetDirectory, StringComparison.OrdinalIgnoreCase);
+-        return fullPath[index..];
++        string relative = Path.GetRelativePath(assetsDirectoryFullPath, Path.GetFullPath(fullPath));
++        return $"{modInternalName}/Assets/{relative}".Replace('\\', '/');
+     }
+ 
+     /// <summary>
+@@ -66,7 +65,7 @@ internal partial class Program
+     /// <param name="oggPaths">The set of all found .OGG files to convert to sound asset references.</param>
+     /// <param name="className">The name of the class that should be generated.</param>
+     /// <param name="relativePath">The relative path for the mod.</param>
+-    private static string ProcessAssetContents(List<string> pngPaths, List<string> oggPaths, string className, string relativePath)
++    private static string ProcessAssetContents(List<string> pngPaths, List<string> oggPaths, string className, string modInternalName, string assetsDirectoryFullPath)
+     {
+         StringBuilder sb = new StringBuilder();
+ 
+@@ -85,8 +84,8 @@ internal partial class Program
+         sb.AppendLine($"public class {className}");
+         sb.AppendLine("{");
+ 
+-        ProcessTextureContents(sb, pngPaths, relativePath);
+-        ProcessSoundContents(sb, oggPaths, relativePath);
++        ProcessTextureContents(sb, pngPaths, modInternalName, assetsDirectoryFullPath);
++        ProcessSoundContents(sb, oggPaths, modInternalName, assetsDirectoryFullPath);
+ 
+         sb.AppendLine("}");
+ 
+@@ -94,7 +93,7 @@ internal partial class Program
+     }
+ 
+     [GeneratedCode("WoTGAssetBuilder", "a")]
+-    private static void ProcessTextureContents(StringBuilder sb, List<string> pngPaths, string relativePath)
++    private static void ProcessTextureContents(StringBuilder sb, List<string> pngPaths, string modInternalName, string assetsDirectoryFullPath)
+     {
+         sb.AppendLine($"{Indent}public class Textures");
+         sb.AppendLine($"{Indent}{{");
+@@ -108,7 +107,7 @@ internal partial class Program
+             foreach (string path in group.OrderBy(p => p))
+             {
+                 string assetName = Path.GetFileNameWithoutExtension(path);
+-                string pathRelativeToSource = GetRelativePath(path, relativePath).Replace('\\', '/').Replace(".png", string.Empty);
++                string pathRelativeToSource = GetModContentPath(path, assetsDirectoryFullPath, modInternalName).Replace(".png", string.Empty);
+ 
+                 bool immediateLoad = path.Contains("_ImmediateLoad");
+                 string loadContext = immediateLoad ? ", AssetRequestMode.ImmediateLoad" : string.Empty;
+@@ -122,7 +121,7 @@ internal partial class Program
+         sb.AppendLine($"{Indent}}}");
+     }
+ 
+-    private static void ProcessSoundContents(StringBuilder sb, List<string> oggPaths, string relativePath)
++    private static void ProcessSoundContents(StringBuilder sb, List<string> oggPaths, string modInternalName, string assetsDirectoryFullPath)
+     {
+         sb.AppendLine($"{Indent}public class Sounds");
+         sb.AppendLine($"{Indent}{{");
+@@ -142,7 +141,7 @@ internal partial class Program
+             foreach (string path in group.OrderBy(p => p))
+             {
+                 string assetName = Path.GetFileNameWithoutExtension(path);
+-                string pathRelativeToSource = GetRelativePath(path, relativePath).Replace('\\', '/').Replace(".ogg", string.Empty);
++                string pathRelativeToSource = GetModContentPath(path, assetsDirectoryFullPath, modInternalName).Replace(".ogg", string.Empty);
+ 
+                 // If the name contains a number suffix, use syntax to indicate that multiple choosable sounds can play.
+                 string variantSyntax = string.Empty;
+diff --git a/build.txt b/build.txt
+index bc2bf0b..9ae4dc9 100644
+--- a/build.txt
++++ b/build.txt
+@@ -1,6 +1,6 @@
+ displayName = Calamity: Wrath of the Gods
+ author = Lucille Karma
+-version = 1.2.24
++version = 1.2.31
+ buildIgnore = .vs\*, .idea\*, *.sln, *.csproj, *.user, obj\*, bin\*, *.config, .git\*, .github\*, LICENSE, README.md, .editorconfig, .gitignore, .gitattributes, Assets\Effects\Compiler\*, lib\refs\*, *.mp4, WoTGAssetRebuilder\*
+ dllReferences = StructureHelper
+ modReferences = SubworldLibrary, Luminance@1.0.9, CalamityMod@2.0.4.1

@@ -1,4 +1,4 @@
-﻿using NoxusBoss.Content.Items;
+using NoxusBoss.Content.Items;
 using NoxusBoss.Content.Items.Dyes;
 using NoxusBoss.Content.NPCs.Bosses.Avatar.SecondPhaseForm;
 using NoxusBoss.Content.NPCs.Friendly;
@@ -14,7 +14,6 @@ using Terraria;
 using Terraria.ID;
 using Terraria.Localization;
 using Terraria.ModLoader;
-using PermafrostNPC = CalamityMod.NPCs.TownNPCs.DILF;
 
 namespace NoxusBoss.Core.GlobalInstances;
 
@@ -108,7 +107,7 @@ public partial class GlobalNPCEventHandlers : GlobalNPC
     [JITWhenModsEnabled(CalamityCompatibility.ModName)]
     private void GetChat_Calamity(NPC npc, ref string chat)
     {
-        if (npc.type == ModContent.NPCType<PermafrostNPC>() && !PermafrostKeepWorldGen.PlayerGivenKey)
+        if (npc.type == CalamityCompatibility.GetPermafrostTownNpcType() && npc.type != NPCID.None && !PermafrostKeepWorldGen.PlayerGivenKey)
         {
             PermafrostKeepWorldGen.PlayerGivenKey = true;
             if (Main.netMode != NetmodeID.SinglePlayer)

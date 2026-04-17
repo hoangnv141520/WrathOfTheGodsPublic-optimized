@@ -1,4 +1,4 @@
-﻿using Luminance.Core.Graphics;
+using Luminance.Core.Graphics;
 using Luminance.Core.Hooking;
 
 using Microsoft.Xna.Framework;
@@ -359,11 +359,11 @@ public partial class NamelessDeityBoss : ModNPC, IBossChecklistSupport, IInfernu
         return true;
     }
 
-    private int AddDynamicFlavorText(On_UIBestiaryEntryInfoPage.orig_GetBestiaryInfoCategory orig, UIBestiaryEntryInfoPage self, IBestiaryInfoElement element)
+    private UIBestiaryEntryInfoPage.BestiaryInfoCategory AddDynamicFlavorText(On_UIBestiaryEntryInfoPage.orig_GetBestiaryInfoCategory orig, UIBestiaryEntryInfoPage self, IBestiaryInfoElement element)
     {
         // UIBestiaryEntryInfoPage.BestiaryInfoCategory.Flavor is inaccessible due to access modifiers. Use its literal value of 2 instead.
         if (element is DynamicFlavorTextBestiaryInfoElement)
-            return 2;
+            return (UIBestiaryEntryInfoPage.BestiaryInfoCategory)2;
 
         return orig(self, element);
     }

@@ -1,4 +1,4 @@
-﻿using Luminance.Core.Graphics;
+using Luminance.Core.Graphics;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using NoxusBoss.Assets;
@@ -55,6 +55,9 @@ public static class AvatarDimensionVariants
     private static void DrawUniversalAnnihilationBackground()
     {
         if (AvatarOfEmptiness.Myself is null)
+            return;
+
+        if (CosmicBackgroundSystem.KalisetFractal is null)
             return;
 
         float maxDimension = MathF.Max(Main.instance.GraphicsDevice.Viewport.Width, Main.instance.GraphicsDevice.Viewport.Height);
