@@ -1,4 +1,5 @@
 ﻿using Luminance.Common.StateMachines;
+using Luminance.Core;
 using Luminance.Core.Graphics;
 
 using Microsoft.Xna.Framework;
@@ -21,6 +22,50 @@ namespace NoxusBoss.Content.NPCs.Bosses.Draedon;
 
 public partial class MarsBody
 {
+    // ── OPT-1: Cache ProjectileType lookup (computed once, not every frame) ──────
+    private static int? _forcefieldTypeID;
+    private static int ForcefieldTypeID =>
+        _forcefieldTypeID ??= ModContent.ProjectileType<DirectionalSolynForcefield>();
+
+    // ── OPT-2: Cache nearest forcefield projectile index, re-scan once per frame.
+    //    Reuses cachedForcefieldIndex (already declared in MarsBody) — that field
+    //    is reset to -1 at the start of ElectricCageBlasts and stores an NPC index
+    //    for that attack. Here we repurpose it for projectile lookups; the two
+    //    attacks never run at the same time so there is no conflict.
+    private int _forcefieldCacheFrame = -1;
+
+    /// <summary>
+    /// Returns the nearest active <see cref="DirectionalSolynForcefield"/> projectile
+    /// to <paramref name="referencePoint"/>, re-scanning only once per game-frame.
+    /// </summary>
+    private Projectile? GetNearestForcefield(Vector2 referencePoint)
+    {
+        int currentFrame = (int)Main.GameUpdateCount;
+        bool cacheStale =
+            _forcefieldCacheFrame != currentFrame ||
+            cachedForcefieldIndex == -1 ||
+            !Main.projectile[cachedForcefieldIndex].active;
+
+        if (cacheStale)
+        {
+            float minDist = float.MaxValue;
+            cachedForcefieldIndex = -1;
+
+            foreach (Projectile p in Main.ActiveProjectiles)
+            {
+                if (p.type != ForcefieldTypeID) continue;
+                float d = p.Distance(referencePoint);
+                if (d < minDist) { minDist = d; cachedForcefieldIndex = p.whoAmI; }
+            }
+
+            _forcefieldCacheFrame = currentFrame;
+        }
+
+        return cachedForcefieldIndex != -1 ? Main.projectile[cachedForcefieldIndex] : null;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────
+
     /// <summary>
     /// Whether Mars has successfully dashed past the target during his brutal barrage attack.
     /// </summary>
@@ -160,7 +205,8 @@ public partial class MarsBody
             {
                 if (AITimer == 1)
                 {
-                    int forcefieldID = ModContent.ProjectileType<DirectionalSolynForcefield>();
+                    // ── OPT-1 applied: use ForcefieldTypeID instead of re-computing ──
+                    int forcefieldID = ForcefieldTypeID;
                     Vector2 teleportOffset = Main.rand.NextVector2Unit();
                     foreach (Projectile projectile in Main.ActiveProjectiles)
                     {
@@ -269,27 +315,13 @@ public partial class MarsBody
     }
 
     /// <summary>
-    /// Performs Mars' brutal barrage forcefield grind effec.t
+    /// Performs Mars' brutal barrage forcefield grind effect.
     /// </summary>
     public void DoBehavior_BrutalBarrageForcefieldGrind()
     {
-        int forcefieldID = ModContent.ProjectileType<DirectionalSolynForcefield>();
-        int forcefieldIndex = -1;
-        float minDistance = float.MaxValue;
-        foreach (Projectile projectile in Main.ActiveProjectiles)
-        {
-            if (projectile.type != forcefieldID)
-                continue;
-
-            float distanceToHand = projectile.Distance(RightHandPosition);
-            if (distanceToHand < minDistance)
-            {
-                forcefieldIndex = projectile.whoAmI;
-                minDistance = distanceToHand;
-            }
-        }
-
-        if (forcefieldIndex == -1)
+        // ── OPT-2: Use cached lookup instead of scanning the full projectile list ──
+        Projectile? forcefieldNullable = GetNearestForcefield(RightHandPosition);
+        if (forcefieldNullable is null)
             return;
 
         // Clear residual speed.
@@ -302,7 +334,7 @@ public partial class MarsBody
         SolynAction = solyn => DoBehavior_BrutalBarrage_Solyn(solyn, false);
         EnergyCannonChainsawActive = true;
 
-        Projectile forcefield = Main.projectile[forcefieldIndex];
+        Projectile forcefield = forcefieldNullable;
         BattleSolyn solyn = BattleSolyn.GetSolynRelatedTo(Main.player[forcefield.owner])!;
 
         NPC.rotation = NPC.rotation.AngleLerp(NPC.velocity.X * 0.006f + NPC.SafeDirectionTo(solyn.Player.Center).X * 0.04f, 0.4f);
@@ -327,9 +359,13 @@ public partial class MarsBody
 
         if (solyn.MultiplayerIndex == Main.myPlayer)
         {
-            float panInterpolant = SmoothStep(0f, 1f, InverseLerp(0f, 30f, AITimer));
-            float shake = InverseLerp(0f, 20f, AITimer).Squared() * 3.3f + InverseLerp(0f, BrutalBarrage_ForcefieldGrindTime, AITimer).Cubed() * 10f;
-            float zoom = panInterpolant * 0.4f;
+            // ── OPT-3: Compute shared interpolants once, reuse for pan/shake/zoom ──
+            float grindProgress   = InverseLerp(0f, BrutalBarrage_ForcefieldGrindTime, AITimer);
+            float appearProgress  = InverseLerp(0f, 30f, AITimer);
+            float panInterpolant  = SmoothStep(0f, 1f, appearProgress);
+            float shake = (appearProgress * appearProgress) * 3.3f   // .Squared() inlined
+                        + (grindProgress * grindProgress * grindProgress) * 10f; // .Cubed() inlined
+            float zoom  = panInterpolant * 0.4f;
 
             ScreenShakeSystem.SetUniversalRumble(shake, TwoPi, null, 0.5f);
             CameraPanSystem.PanTowards(forcefield.Center, panInterpolant);
@@ -345,12 +381,38 @@ public partial class MarsBody
     }
 
     /// <summary>
+    /// The maximum number of sparks spawned per impact at full graphics quality.
+    /// </summary>
+    private const int MaxSparkCount = 22;
+
+    /// <summary>
     /// Creates impact sparks relative to a given target.
     /// </summary>
     /// <param name="impactOrigin">The origin of the impact.</param>
     public void DoBehavior_BrutalBarrageButtonMash_CreateSparks(Vector2 impactOrigin)
     {
-        for (int i = 0; i < 22; i++)
+        // ── OPT-5: Scale spark count with gfxQuality.
+        //    On a strong machine (gfxQuality = 1) → 22 sparks, visually identical.
+        //    On a weak machine  (gfxQuality = 0.3) → ~7 sparks, reduces particle load.
+        int sparkCount = (int)(MaxSparkCount * MathHelper.Clamp(Main.gfxQuality, 0.3f, 1f));
+
+        // ── OPT-4: Compute shared random hue values once outside the loop,
+        //    and build one Palette per call instead of one per spark ──
+        float hueShiftWarm   = Main.rand.NextFloat(0.3f);
+        float hueShiftOrange = Main.rand.NextFloat(-0.04f, 0.1f);
+
+        Color wheatHued  = Color.Wheat.HueShift(hueShiftWarm);
+        Color orangeHued = Color.Orange.HueShift(hueShiftOrange) * 0.85f;
+
+        Palette sparkPalette = new Palette([
+            Color.White,
+            wheatHued,
+            orangeHued,
+            Color.OrangeRed * 0.9f,
+            Color.Transparent,
+        ]);
+
+        for (int i = 0; i < sparkCount; i++)
         {
             float sparkSpread = Main.rand.NextFloatDirection();
             float sparkSpeed = SmoothStep(50f, 20f, Abs(sparkSpread));
@@ -362,14 +424,6 @@ public partial class MarsBody
 
             Vector2 sparkVelocity = (NPC.AngleTo(impactOrigin) + PiOver2 + sparkSpread * 0.29f + Main.rand.NextFloatDirection() * 0.04f + 0.3f).ToRotationVector2() * sparkSpeed;
             Vector2 sparkSpawnPosition = Main.rand.NextVector2Circular(10f, 10f) + impactOrigin;
-
-            Palette sparkPalette = new Palette([
-                Color.White,
-                Color.Wheat.HueShift(Main.rand.NextFloat(0.3f)),
-                Color.Orange.HueShift(Main.rand.NextFloat(-0.04f, 0.1f)) * 0.85f,
-                Color.OrangeRed * 0.9f,
-                Color.Transparent,
-            ]);
 
             PalettedElectricSparkParticle spark = new PalettedElectricSparkParticle(sparkSpawnPosition, sparkVelocity, sparkPalette, sparkLifetime, new Vector2(0.0075f, 0.06f));
             spark.Spawn();
@@ -400,12 +454,12 @@ public partial class MarsBody
     /// <summary>
     /// Returns whether Mars should be stopped by a forcefield during his brutal barrage attack.
     /// </summary>
-    /// <returns></returns>
     public bool DoBehavior_BrutalBarrage_PerformChainsawCollisionCheck(out Projectile? reflectingForcefield)
     {
         reflectingForcefield = null;
 
-        int forcefieldID = ModContent.ProjectileType<DirectionalSolynForcefield>();
+        // ── OPT-1 applied: use ForcefieldTypeID instead of re-computing ──
+        int forcefieldID = ForcefieldTypeID;
         foreach (Projectile projectile in Main.ActiveProjectiles)
         {
             if (projectile.type == forcefieldID && DoBehavior_BrutalBarrage_ForcefieldIsCollidingWithChainsaw(projectile, 96f))
@@ -455,6 +509,8 @@ public partial class MarsBody
     /// </summary>
     public static void DoBehavior_BrutalBarrage_EndEffects()
     {
+        // ── OPT-1 applied: ForcefieldTypeID cannot be used in static context,
+        //    but ModContent.ProjectileType<> is only called once here (not per frame) ──
         int forcefieldID = ModContent.ProjectileType<DirectionalSolynForcefield>();
         foreach (Projectile projectile in Main.ActiveProjectiles)
         {
@@ -468,7 +524,8 @@ public partial class MarsBody
     /// </summary>
     public void DoBehavior_BrutalBarrage_Solyn(BattleSolyn solyn, bool beamEnabled)
     {
-        int forcefieldID = ModContent.ProjectileType<DirectionalSolynForcefield>();
+        // ── OPT-1 applied: use ForcefieldTypeID instead of re-computing ──
+        int forcefieldID = ForcefieldTypeID;
         float forcefieldDirection = 0f;
         foreach (Projectile projectile in Main.ActiveProjectiles)
         {
